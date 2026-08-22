@@ -1,0 +1,27 @@
+@startuml
+title Level 1 - Data Flow Diagram\nContract Monitoring System (Offline Payment Recorded by Cashier)
+
+left to right direction
+skinparam shadowing false
+skinparam linetype ortho
+
+' External Entities
+rectangle "Tenant" as Tenant
+rectangle "Cashier" as Cashier
+rectangle "Admin/Staff" as AdminStaff
+
+' Processes
+rectangle "(1.0)\nAuthentication & User Session" as P1 #F7F7F7
+rectangle "(2.0)\nContract Management" as P2 #F7F7F7
+rectangle "(3.0)\nPayment Recording (Cashier)" as P3 #F7F7F7
+rectangle "(4.0)\nNotifications & Messaging" as P4 #F7F7F7
+rectangle "(5.0)\nReporting & Dashboard" as P5 #F7F7F7
+rectangle "(6.0)\nAudit Logging" as P6 #F7F7F7
+
+' Data Stores
+database "D1 User DB" as D1
+database "D2 Contract DB" as D2
+database "D3 Payment DB" as D3
+database "D4 Rental Space DB" as D4
+database "D5 Message DB" as D5
+database "D6 Notification DB"

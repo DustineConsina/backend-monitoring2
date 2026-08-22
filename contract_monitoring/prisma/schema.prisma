@@ -1,0 +1,222 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// User model for authentication
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  role          UserRole  @default(TENANT)
+  contactNumber String?
+  address       String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  contracts     Contract[]
+  messages      Message[]
+  auditLogs     AuditLog[]
+  
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  TENANT
+}
+
+// Rental Space Type
+model RentalSpaceType {
+  id               String        @id @default(cuid())
+  name             String        @unique // "Food Stall", "Market Hall Bay", "Bañera Warehouse Bay"
+  description      String?       @db.Text
+  baseRatePerSqm   Decimal       @db.Decimal(10, 2)
+  totalSpaces      Int
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  
+  rentalSpaces     RentalSpace[]
+  
+  @@map("rental_space_types")
+}
+
+// Individual Rental Space
+model RentalSpace {
+  id               String           @id @default(cuid())
+  spaceNumber      String           // e.g., "Stall 1", "Bay 15"
+  typeId           String
+  type             RentalSpaceType  @relation(fields: [typeId], references: [id])
+  squareMeters     Decimal          @db.Decimal(10, 2)
+  location         String?          @db.Text
+  status           SpaceStatus      @default(AVAILABLE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  
+  contracts        Contract[]
+  
+  @@unique([typeId, spaceNumber])
+  @@map("rental_spaces")
+}
+
+enum SpaceStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+// Contract Model
+model Contract {
+  id                  String        @id @default(cuid())
+  contractNumber      String        @unique
+  tenantId            String
+  tenant              User          @relation(fields: [tenantId], references: [id])
+  rentalSpaceId       String
+  rentalSpace         RentalSpace   @relation(fields: [rentalSpaceId], references: [id])
+  
+  startDate           DateTime
+  endDate             DateTime
+  monthlyRent         Decimal       @db.Decimal(10, 2)
+  securityDeposit     Decimal       @db.Decimal(10, 2)
+  interestRate        Decimal       @db.Decimal(5, 2) @default(0) // Monthly interest rate for late payments
+  
+  status              ContractStatus @default(ACTIVE)
+  qrCode              String?       @db.Text // QR code data
+  
+  terms               String?       @db.Text
+  notes               String?       @db.Text
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  
+  payments            Payment[]
+  notifications       Notification[]
+  
+  @@index([tenantId])
+  @@index([status])
+  @@map("contracts")
+}
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+  RENEWED
+}
+
+// Payment Model
+model Payment {
+  id                String         @id @default(cuid())
+  contractId        String
+  contract          Contract       @relation(fields: [contractId], references: [id])
+  
+  amount            Decimal        @db.Decimal(10, 2)
+  paymentDate       DateTime       @default(now())
+  dueDate           DateTime
+  paymentFor        String         // "Rent for January 2026", etc.
+  
+  lateFee           Decimal        @db.Decimal(10, 2) @default(0)
+  interest          Decimal        @db.Decimal(10, 2) @default(0)
+  totalAmount       Decimal        @db.Decimal(10, 2)
+  
+  status            PaymentStatus  @default(PENDING)
+  receiptNumber     String?        @unique
+  paymentMethod     String?        // Cash, Check, Bank Transfer
+  notes             String?        @db.Text
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  @@index([contractId])
+  @@index([status])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  PARTIAL
+}
+
+// Notification Model
+model Notification {
+  id            String           @id @default(cuid())
+  contractId    String
+  contract      Contract         @relation(fields: [contractId], references: [id])
+  
+  type          NotificationType
+  subject       String
+  message       String           @db.Text
+  sentDate      DateTime?
+  status        NotificationStatus @default(PENDING)
+  
+  createdAt     DateTime         @default(now())
+  
+  @@index([contractId])
+  @@index([status])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  PAYMENT_DUE
+  PAYMENT_OVERDUE
+  CONTRACT_RENEWAL
+  CONTRACT_EXPIRING
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Message/Chat Model
+model Message {
+  id            String      @id @default(cuid())
+  senderId      String
+  sender        User        @relation(fields: [senderId], references: [id])
+  receiverId    String?     // null for broadcast
+  
+  subject       String?
+  content       String      @db.Text
+  isRead        Boolean     @default(false)
+  
+  createdAt     DateTime    @default(now())
+  
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("messages")
+}
+
+// Audit Trail Model
+model AuditLog {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  
+  action        String      // CREATE, UPDATE, DELETE, VIEW
+  entity        String      // Contract, Payment, User, etc.
+  entityId      String
+  
+  oldValues     String?     @db.Text // JSON
+  newValues     String?     @db.Text // JSON
+  
+  ipAddress     String?
+  userAgent     String?     @db.Text
+  
+  createdAt     DateTime    @default(now())
+  
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

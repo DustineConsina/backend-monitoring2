@@ -1,0 +1,32 @@
+graph TD
+    Start([Cashier Clicks<br/>Record Payment]) --> ViewCollectibles["View Collectibles<br/>List"]
+    ViewCollectibles --> SelectPayment["Select Payment<br/>to Record"]
+    SelectPayment --> GetDetails["Fetch Payment Details:<br/>- Tenant Name<br/>- Contract #<br/>- Amount Due<br/>- Balance<br/>- Due Date"]
+    GetDetails --> EnterAmount["Enter Payment Amount"]
+    EnterAmount --> ValidateAmount{Valid<br/>Amount?}
+
+    ValidateAmount -->|No - Exceeds Balance| ErrorMsg["Show Error:<br/>Cannot exceed balance"]
+    ErrorMsg --> EnterAmount
+
+    ValidateAmount -->|Yes| SelectMethod["Select Payment Method:<br/>- Cash<br/>- Check<br/>- Bank Transfer<br/>- Online"]
+    SelectMethod --> EnterRef["Enter Reference Number<br/>Check #, Transaction ID, etc."]
+    EnterRef --> OptionalRemarks["Optional: Add Remarks"]
+    OptionalRemarks --> CalcBalance["Calculate New Balance:<br/>Balance = Total - Paid"]
+    CalcBalance --> CheckBalance{Balance<br/>= 0?}
+
+    CheckBalance -->|Yes| MarkPaid["Mark Payment Status:<br/>PAID"]
+    CheckBalance -->|No| MarkPartial["Mark Payment Status:<br/>PARTIAL"]
+
+    MarkPaid --> UpdateDB["Update Payment Record<br/>in Database"]
+    MarkPartial --> UpdateDB
+    UpdateDB --> GenReceipt["Generate Receipt"]
+    GenReceipt --> ReceiptDetails["Receipt Shows:<br/>- Payment Amount<br/>- Reference #<br/>- Payment Method<br/>- New Balance"]
+    ReceiptDetails --> SaveReceipt["Save Receipt<br/>for Tenant"]
+    SaveReceipt --> End([Payment Recorded &<br/>Receipt Generated])
+
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style EnterAmount fill:#2196F3,stroke:#1565C0,color:#fff
+    style MarkPaid fill:#FF9800,stroke:#E65100,color:#fff
+    style MarkPartial fill:#FF9800,stroke:#E65100,color:#fff
+    style GenReceipt fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style End fill:#4CAF50,stroke:#2E7D32,color:#fff

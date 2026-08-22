@@ -161,14 +161,14 @@ class TenantController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8',
-            'phone' => 'nullable|string|max:20',
+            'phone' => 'nullable|string|max:11',
             'address' => 'nullable|string',
             'business_name' => 'required|string|max:255',
             'business_type' => 'nullable|string|max:255',
             'tin' => 'nullable|string|max:50',
             'business_address' => 'nullable|string',
             'contact_person' => 'required|string|max:255',
-            'contact_number' => 'nullable|string|max:20',
+            'contact_number' => 'nullable|string|max:11',
         ]);
 
         if ($validator->fails()) {

@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Architecture & Infrastructure</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .diagram-card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+            transition: transform 0.3s ease;
+        }
+
+        .diagram-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .diagram-title {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+        }
+
+        .diagram-description {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 1em;
+            line-height: 1.8;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: #f9f9f9;
+            border-radius: 5px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        .details-section {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f0f7ff;
+            border-left: 5px solid #667eea;
+            border-radius: 5px;
+        }
+
+        .details-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .detail-item {
+            margin-bottom: 12px;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+
+        .detail-item strong {
+            color: #667eea;
+        }
+
+        .tech-stack {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .tech-box {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            border: 2px solid #667eea;
+        }
+
+        .tech-box h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .tech-item {
+            padding: 5px 0;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 1200px) {
+            .tech-stack {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏗️ System Architecture & Infrastructure</h1>
+            <p class="subtitle">Complete System Design & Technology Stack</p>
+        </header>
+
+        <!-- OVERALL SYSTEM ARCHITECTURE -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">🌐 Complete System Architecture</h2>
+            <p class="diagram-description">
+                Shows the complete architecture with all components interacting: frontend, backend, database,
+                external services, and scheduled jobs.
+            </p>
+
+            <div class="mermaid">
+graph TB
+    subgraph Client["🖥️ CLIENT LAYER (Browser)"]
+        UI["Next.js Frontend<br/>- React Components<br/>- UI/UX Layer<br/>- Client-side Routing"]
+        Auth["Auth Context<br/>- Token Management<br/>- User Session<br/>- Role Storage"]
+    end
+
+    subgraph Network["📡 NETWORK LAYER"]
+        HTTP["HTTP/HTTPS<br/>REST API Calls<br/>Request/Response"]
+        WS["WebSocket<br/>Real-time Chat<br/>Notifications"]
+    end
+
+    subgraph API["⚙️ API LAYER (Laravel)"]
+        Router["Router<br/>API Routes<br/>Endpoint Mapping"]
+        Middleware["Middleware<br/>- CORS<br/>- Auth (Sanctum)<br/>- Role Check<br/>- Validation"]
+        Controllers["Controllers<br/>- AuthController<br/>- ContractController<br/>- PaymentController<br/>- ReportController<br/>- etc."]
+        Services["Business Logic<br/>- Contract Logic<br/>- Payment Logic<br/>- Notifications<br/>- Reports"]
+    end
+
+    subgraph Data["📦 DATA LAYER (Models)"]
+        Models["Eloquent Models<br/>- Contract<br/>- Payment<br/>- Tenant<br/>- RentalSpace<br/>- User<br/>- Notification<br/>- DemandLetter"]
+        Query["Query Builder<br/>Database Queries<br/>Relationships<br/>Eager Loading"]
+    end
+
+    subgraph Storage["💾 STORAGE LAYER (MySQL)"]
+        Database["Database<br/>- contracts table<br/>- payments table<br/>- tenants table<br/>- users table<br/>- notifications table<br/>- demand_letters table<br/>- rental_spaces table"]
+        Cache["Cache<br/>Redis/Memcached<br/>Session Storage"]
+        Files["File Storage<br/>- PDFs<br/>- Images<br/>- Documents"]
+    end
+
+    subgraph Jobs["⏰ BACKGROUND JOBS"]
+        Scheduler["Scheduler/Cron<br/>- Check Overdue<br/>- Check Renewal<br/>- Send Notifications<br/>- Generate Letters"]
+        Queue["Queue System<br/>- Email Queue<br/>- Notification Queue<br/>- PDF Generation"]
+    end
+
+    subgraph External["🌍 EXTERNAL SERVICES"]
+        Email["Email Service<br/>Mailable Classes<br/>Notifications"]
+        FileService["File Service<br/>PDF Generation<br/>QR Codes"]
+    end
+
+    %% Connections
+    UI -->|Make Request| HTTP
+    Auth -->|Store Token| HTTP
+    HTTP -->|HTTP| Router
+    Router -->|Route| Middleware
+    Middleware -->|Authenticate| Controllers
+    Controllers -->|Call Methods| Services
+    Services -->|Query/Update| Models
+    Models -->|ORM| Query
+    Query -->|SQL| Database
+    Query -->|SQL| Cache
+    Database -->|Response| Query
+    Cache -->|Response| Query
+    Query -->|Serialize| Models
+    Models -->|Format| Services
+    Services -->|Response| Controllers
+    Controllers -->|JSON| HTTP
+    HTTP -->|Response| UI
+    UI -->|Display| Auth
+
+    Scheduler -->|Execute Tasks| Services
+    Services -->|Create Jobs| Queue
+    Queue -->|Send Email| Email
+    Services -->|Generate| FileService
+    FileService -->|Store| Files
+
+    UI -->|WebSocket| WS
+    WS -->|Real-time| Chat["Chat Messages<br/>Notifications"]
+    Chat -->|Store| Database
+
+    style Client fill:#2196F3,stroke:#1565C0,color:#fff
+    style Network fill:#FF9800,stroke:#E65100,color:#fff
+    style API fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style Data fill:#FF5722,stroke:#D84315,color:#fff
+    style Storage fill:#00897B,stroke:#004D40,color:#fff
+    style Jobs fill:#F57C00,stroke:#E65100,color:#fff
+    style External fill:#689F38,stroke:#558B2F,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>🔧 Technology Stack</h3>
+
+                <div class="tech-stack">
+                    <div class="tech-box">
+                        <h4>🖥️ Frontend</h4>
+                        <div class="tech-item">• Next.js 13+</div>
+                        <div class="tech-item">• React 18+</div>
+                        <div class="tech-item">• TypeScript</div>
+                        <div class="tech-item">• Tailwind CSS</div>
+                        <div class="tech-item">• Recharts</div>
+                        <div class="tech-item">• Axios/API Client</div>
+                    </div>
+
+                    <div class="tech-box">
+                        <h4>⚙️ Backend</h4>
+                        <div class="tech-item">• Laravel 11</div>
+                        <div class="tech-item">• PHP 8.2</div>
+                        <div class="tech-item">• Eloquent ORM</div>
+                        <div class="tech-item">• Laravel Sanctum</div>
+                        <div class="tech-item">• Artisan Commands</div>
+                        <div class="tech-item">• Laravel Queues</div>
+                    </div>
+
+                    <div class="tech-box">
+                        <h4>💾 Database & Storage</h4>
+                        <div class="tech-item">• MySQL 8.0</div>
+                        <div class="tech-item">• Redis (Cache)</div>
+                        <div class="tech-item">• File Storage</div>
+                        <div class="tech-item">• PDF Generation</div>
+                        <div class="tech-item">• QR Codes</div>
+                        <div class="tech-item">• Image Processing</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- REQUEST LIFECYCLE -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">⏱️ Request Lifecycle</h2>
+            <p class="diagram-description">
+                Complete journey of a single HTTP request from user action to database operation and response.
+            </p>
+
+            <div class="mermaid">
+graph LR
+    A["👤 User Action<br/>Click Button"] -->|1. Event| B["🎯 Frontend Handler<br/>onClick/onSubmit"]
+    B -->|2. Validate| C["✓ Client Validation<br/>Check form data"]
+    C -->|3. Prepare| D["📦 Build Request<br/>JSON payload<br/>Headers<br/>Auth token"]
+    D -->|4. Send| E["📡 HTTP Request<br/>To API Server"]
+    E -->|5. Route| F["🛣️ Router<br/>Match endpoint"]
+    F -->|6. Middleware| G["🔐 Middleware Pipeline<br/>CORS Check<br/>Auth Validation<br/>Role Verification"]
+    G -->|7. Controller| H["⚙️ Controller<br/>Handle request<br/>Call service"]
+    H -->|8. Validate| I["✓ Server Validation<br/>Check business rules"]
+    I -->|9. Process| J["💼 Service Logic<br/>Execute business logic<br/>Calculations"]
+    J -->|10. Database| K["🗄️ Model Query<br/>Eloquent ORM<br/>Execute SQL"]
+    K -->|11. Persist| L["💾 Database<br/>INSERT/UPDATE<br/>COMMIT"]
+    L -->|12. Retrieve| M["📊 Query Results<br/>Fetch data"]
+    M -->|13. Serialize| N["📝 Format Response<br/>Convert to JSON"]
+    N -->|14. Response| O["📤 Send Response<br/>HTTP 200/201/etc"]
+    O -->|15. Parse| P["🔍 Parse JSON<br/>Frontend"]
+    P -->|16. Update| Q["💾 Update State<br/>useState/Context"]
+    Q -->|17. Render| R["🎨 Re-render UI<br/>React update"]
+    R -->|18. Display| S["✨ Show Result<br/>User sees changes"]
+
+    style A fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style E fill:#FF9800,stroke:#E65100,color:#fff
+    style G fill:#F44336,stroke:#C62828,color:#fff
+    style K fill:#00897B,stroke:#004D40,color:#fff
+    style S fill:#4CAF50,stroke:#2E7D32,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>⏱️ Request Timing Breakdown</h3>
+
+                <div class="detail-item">
+                    <strong>Frontend Processing (Steps 1-4):</strong> ~50-100ms
+                    User action, validation, request preparation
+                </div>
+
+                <div class="detail-item">
+                    <strong>Network Transit (Step 5):</strong> ~10-500ms (depends on network)
+                    HTTP request travels to server
+                </div>
+
+                <div class="detail-item">
+                    <strong>Backend Processing (Steps 6-13):</strong> ~50-500ms
+                    Middleware checks, controller logic, database queries
+                </div>
+
+                <div class="detail-item">
+                    <strong>Response Generation (Steps 14-15):</strong> ~20-50ms
+                    Format response, send back to client
+                </div>
+
+                <div class="detail-item">
+                    <strong>Frontend Update (Steps 16-18):</strong> ~16-100ms
+                    Update state, React re-render, DOM update
+                </div>
+
+                <div class="detail-item">
+                    <strong>Total Typical Time:</strong> ~200-1200ms
+                    (Mostly depends on network and database query complexity)
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA RELATIONSHIPS DIAGRAM -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">🔗 Entity Relationship Diagram (ERD)</h2>
+            <p class="diagram-description">
+                Shows database schema with all tables, fields, and relationships between entities.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    U["👤 users<br/>id PK<br/>name<br/>email UNIQUE<br/>password<br/>role<br/>created_at"]
+
+    T["👥 tenants<br/>id PK<br/>user_id FK<br/>tenant_code<br/>business_name<br/>business_type<br/>tin<br/>contact_number<br/>qr_code<br/>profile_picture<br/>status"]
+
+    RS["🏢 rental_spaces<br/>id PK<br/>space_code UNIQUE<br/>name<br/>location<br/>size<br/>features<br/>monthly_rate<br/>status<br/>created_at"]
+
+    C["📋 contracts<br/>id PK<br/>contract_number UNIQUE<br/>tenant_id FK<br/>rental_space_id FK<br/>start_date<br/>end_date<br/>monthly_rental<br/>deposit_amount<br/>interest_rate<br/>terms_conditions<br/>status<br/>created_at"]
+
+    P["💰 payments<br/>id PK<br/>payment_number UNIQUE<br/>contract_id FK<br/>tenant_id FK<br/>billing_period_start<br/>billing_period_end<br/>due_date<br/>amount_due<br/>interest_amount<br/>total_amount<br/>amount_paid<br/>balance<br/>status<br/>payment_date<br/>payment_method"]
+
+    DL["📄 demand_letters<br/>id PK<br/>contract_id FK<br/>payment_id FK<br/>tenant_id FK<br/>letter_number<br/>amount_due<br/>interest_charged<br/>total_payable<br/>days_overdue<br/>generated_date<br/>file_path"]
+
+    N["🔔 notifications<br/>id PK<br/>user_id FK<br/>type<br/>title<br/>message<br/>data JSON<br/>is_read<br/>email_sent<br/>created_at"]
+
+    CM["💬 chat_messages<br/>id PK<br/>sender_id FK<br/>recipient_id FK<br/>message<br/>is_read<br/>created_at"]
+
+    AL["📝 audit_logs<br/>id PK<br/>user_id FK<br/>action<br/>model<br/>record_id<br/>changes<br/>ip_address<br/>created_at"]
+
+    %% Relationships
+    U -->|1:Many| T
+    U -->|1:Many| N
+    U -->|1:Many| CM
+    U -->|1:Many| AL
+
+    T -->|1:Many| C
+    T -->|1:Many| P
+    T -->|1:Many| DL
+
+    RS -->|1:Many| C
+
+    C -->|1:Many| P
+    C -->|1:Many| DL
+
+    P -->|1:Many| DL
+
+    style U fill:#2196F3,stroke:#1565C0,color:#fff
+    style T fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style RS fill:#00BCD4,stroke:#00838F,color:#fff
+    style C fill:#FF9800,stroke:#E65100,color:#fff
+    style P fill:#F44336,stroke:#C62828,color:#fff
+    style DL fill:#FF5722,stroke:#D84315,color:#fff
+    style N fill:#FFC107,stroke:#F57F17,color:#000
+    style CM fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style AL fill:#607D8B,stroke:#37474F,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>📊 Database Schema Details</h3>
+
+                <div class="detail-item">
+                    <strong>users:</strong> System users (Admin, Staff, Cashier, Tenant)
+                </div>
+
+                <div class="detail-item">
+                    <strong>tenants:</strong> Tenant profile linked to user account
+                </div>
+
+                <div class="detail-item">
+                    <strong>rental_spaces:</strong> Available rental units/offices
+                </div>
+
+                <div class="detail-item">
+                    <strong>contracts:</strong> Lease agreements between tenants and spaces
+                </div>
+
+                <div class="detail-item">
+                    <strong>payments:</strong> Monthly payment records with status tracking
+                </div>
+
+                <div class="detail-item">
+                    <strong>demand_letters:</strong> Overdue notices with calculated interest
+                </div>
+
+                <div class="detail-item">
+                    <strong>notifications:</strong> System alerts for all users
+                </div>
+
+                <div class="detail-item">
+                    <strong>chat_messages:</strong> Direct messaging between users
+                </div>
+
+                <div class="detail-item">
+                    <strong>audit_logs:</strong> Activity tracking for compliance
+                </div>
+            </div>
+        </div>
+
+        <!-- USER ROLES & PERMISSIONS FLOW -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">🔐 User Roles & Permissions Matrix</h2>
+            <p class="diagram-description">
+                Complete breakdown of user roles and what each role can access and perform.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    ADMIN["👨‍💼 ADMIN<br/>Full System Access"]
+    STAFF["👨‍💻 STAFF<br/>Operational Access"]
+    CASHIER["💳 CASHIER<br/>Payment Processing"]
+    TENANT["👤 TENANT<br/>Limited Access"]
+
+    ADMIN -->|✓| A1["View All Contracts"]
+    ADMIN -->|✓| A2["Create Contracts"]
+    ADMIN -->|✓| A3["Activate/Renew Contracts"]
+    ADMIN -->|✓| A4["View All Payments"]
+    ADMIN -->|✓| A5["View All Tenants"]
+    ADMIN -->|✓| A6["Create Tenants"]
+    ADMIN -->|✓| A7["View All Reports"]
+    ADMIN -->|✓| A8["View Audit Logs"]
+    ADMIN -->|✓| A9["Manage Users"]
+    ADMIN -->|✓| A10["System Settings"]
+
+    STAFF -->|✓| S1["View All Contracts"]
+    STAFF -->|✓| S2["Create Contracts"]
+    STAFF -->|✓| S3["Activate/Renew Contracts"]
+    STAFF -->|✓| S4["View All Payments"]
+    STAFF -->|✓| S5["View All Tenants"]
+    STAFF -->|✓| S6["Create Tenants"]
+    STAFF -->|✓| S7["View Reports"]
+    STAFF -->|✓| S8["View Audit Logs"]
+    STAFF -->|✗| S9["Cannot: Manage Users"]
+    STAFF -->|✗| S10["Cannot: Record Payments"]
+
+    CASHIER -->|✓| C1["View Payments"]
+    CASHIER -->|✓| C2["Record Payments"]
+    CASHIER -->|✓| C3["View Demand Letters"]
+    CASHIER -->|✓| C4["Print Receipts"]
+    CASHIER -->|✓| C5["View Collection Summary"]
+    CASHIER -->|✗| C6["Cannot: Create Contracts"]
+    CASHIER -->|✗| C7["Cannot: Edit Contracts"]
+    CASHIER -->|✗| C8["Cannot: Access Reports"]
+    CASHIER -->|✗| C9["Cannot: Manage Tenants"]
+
+    TENANT -->|✓| T1["View Own Contracts"]
+    TENANT -->|✓| T2["View Own Payments"]
+    TENANT -->|✓| T3["Download Lease"]
+    TENANT -->|✓| T4["Scan QR Code"]
+    TENANT -->|✓| T5["View Payment History"]
+    TENANT -->|✗| T6["Cannot: Create Contracts"]
+    TENANT -->|✗| T7["Cannot: View Other Tenants"]
+    TENANT -->|✗| T8["Cannot: Access Reports"]
+    TENANT -->|✗| T9["Cannot: Record Payments"]
+
+    style ADMIN fill:#F44336,stroke:#C62828,color:#fff
+    style STAFF fill:#FF9800,stroke:#E65100,color:#fff
+    style CASHIER fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style TENANT fill:#2196F3,stroke:#1565C0,color:#fff
+    style A1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style A2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style A3 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style A9 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style S9 fill:#F44336,stroke:#C62828,color:#fff
+    style C6 fill:#F44336,stroke:#C62828,color:#fff
+    style T6 fill:#F44336,stroke:#C62828,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>🔐 Role-Based Access Control (RBAC)</h3>
+
+                <div class="detail-item">
+                    <strong>Admin:</strong> Full system access, can manage all contracts, payments, tenants,
+                    reports, users, and system settings. Can perform all operations.
+                </div>
+
+                <div class="detail-item">
+                    <strong>Staff:</strong> Operational access similar to admin but cannot manage user accounts
+                    or change system settings. Cannot record payments (cashier-only).
+                </div>
+
+                <div class="detail-item">
+                    <strong>Cashier:</strong> Limited to payment operations. Can view and record payments,
+                    view demand letters, generate receipts, but cannot create or modify contracts.
+                </div>
+
+                <div class="detail-item">
+                    <strong>Tenant:</strong> Very limited access. Can only view their own contracts, payments,
+                    download lease agreements, and scan QR codes for contract information.
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>🏗️ System Architecture Design | Complete Infrastructure Overview</p>
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+        mermaid.contentLoaded();
+    </script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+graph TD
+    Start([User Visits Application]) --> Check{User<br/>Authenticated?}
+
+    Check -->|No| LoginPage[Login Page Displayed]
+    LoginPage --> EnterCreds[Enter Email & Password]
+    EnterCreds --> ValidateCreds{Valid<br/>Credentials?}
+
+    ValidateCreds -->|No| ErrorMsg[Show Error Message]
+    ErrorMsg --> EnterCreds
+
+    ValidateCreds -->|Yes| CreateToken["Create Sanctum Token<br/>(Backend)"]
+    CreateToken --> StoreToken["Store Token<br/>(LocalStorage)"]
+    StoreToken --> CheckRole{User Role?}
+
+    Check -->|Yes| CheckRole
+
+    CheckRole -->|Admin/Staff| AdminDash["Redirect to<br/>Admin Dashboard"]
+    CheckRole -->|Cashier| CashierDash["Redirect to<br/>Cashier Dashboard"]
+    CheckRole -->|Tenant| TenantDash["Redirect to<br/>Tenant Portal"]
+
+    AdminDash --> End1([Dashboard Ready])
+    CashierDash --> End2([Dashboard Ready])
+    TenantDash --> End3([Dashboard Ready])
+
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style LoginPage fill:#2196F3,stroke:#1565C0,color:#fff
+    style AdminDash fill:#FF9800,stroke:#E65100,color:#fff
+    style CashierDash fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style TenantDash fill:#00BCD4,stroke:#00838F,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End3 fill:#4CAF50,stroke:#2E7D32,color:#fff

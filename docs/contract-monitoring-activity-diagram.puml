@@ -1,0 +1,83 @@
+@startuml
+title Contract Monitoring System - Main Flow (Activity Diagram with Swimlanes)
+
+|User (Admin/Staff/Tenant)|
+start
+:Open Web App;
+:Enter email + password;
+
+|Frontend (Next.js)|
+:POST /api/auth/login\n(collect credentials);
+:Store JWT token;
+
+|Backend API (Laravel/PHP)|
+:Validate credentials;
+if (Valid?) then (Yes)
+  :Issue JWT token;
+  :Return user profile + token;
+else (No)
+  :Return 401 Unauthorized;
+  |Frontend (Next.js)|
+  :Show login error;
+  |User (Admin/Staff/Tenant)|
+  stop
+endif
+
+|User (Admin/Staff)|
+:Navigate to Contracts;
+:Fill Create Contract form;
+
+|Frontend (Next.js)|
+:POST /api/contracts\n(Bearer token);
+
+|Backend API (Laravel/PHP)|
+:Validate payload;
+:Create Contract record;
+:Generate QR code\n(/contracts/:id/qr-code);
+:Write Audit Log\n(action=CREATE, entity=Contract);
+:Return created contract;
+
+|Frontend (Next.js)|
+:Refresh contract list\nGET /api/contracts;
+
+|Backend API (Laravel/PHP)|
+:Fetch contracts (+ filters);
+:Return list;
+
+|User (Admin/Staff)|
+:Go to Payments / Billing;
+:Record or generate payment schedule;
+
+|Frontend (Next.js)|
+:POST /api/payments\n(Bearer token);
+
+|Backend API (Laravel/PHP)|
+:Create Payment record;
+:Write Audit Log\n(action=CREATE, entity=Payment);
+:Evaluate payment due/overdue rules;
+
+if (Needs notification?) then (Yes)
+  :Create Notification record;
+  |Frontend (Next.js)|
+  :Tenant sees notification\nGET /api/notifications;
+else (No)
+endif
+
+|User (Tenant)|
+:View payment due;
+:Pay (cash/other method in office);
+
+|Frontend (Next.js)|
+:PUT /api/payments/:id\n(status=PAID, receipt info);
+
+|Backend API (Laravel/PHP)|
+:Update Payment status;
+:Write Audit Log\n(action=UPDATE, entity=Payment);
+:Return updated payment;
+
+|Frontend (Next.js)|
+:Show receipt + status;
+
+|User (Admin/Staff/Tenant)|
+stop
+@enduml

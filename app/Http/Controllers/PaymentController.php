@@ -230,6 +230,15 @@ class PaymentController extends Controller
         $isPaid = isset($data['payment_date']) && $data['payment_date'] !== null;
         $amountPaid = $isPaid ? $totalWithInterest : 0;
         $remainingBalance = $totalWithInterest - $amountPaid;
+
+        // Default missing billing dates to the contract anniversary cycle.
+        $billingContract = Contract::find($data['contract_id']);
+        $billingPeriodStart = $data['billing_period_start']
+            ?? Carbon::parse($billingContract->start_date ?? $data['due_date']);
+        $billingPeriodStart = $data['billing_period_start']
+            ?? Carbon::parse($billingPeriodStart);
+        $billingPeriodEnd = $data['billing_period_end']
+            ?? $billingPeriodStart->copy()->addMonth();
         
         $payment = Payment::create([
             'payment_number' => $paymentNumber,
@@ -238,8 +247,8 @@ class PaymentController extends Controller
             'amount_due' => $data['amount_due'],
             'interest_amount' => $interest,
             'due_date' => $data['due_date'],
-            'billing_period_start' => $data['billing_period_start'] ?? now(),
-            'billing_period_end' => $data['billing_period_end'] ?? now(),
+            'billing_period_start' => $billingPeriodStart,
+            'billing_period_end' => $billingPeriodEnd,
             'total_amount' => $totalWithInterest,
             'amount_paid' => $amountPaid,
             'balance' => $remainingBalance,

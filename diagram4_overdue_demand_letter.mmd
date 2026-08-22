@@ -1,0 +1,32 @@
+graph TD
+    Start([Scheduled Task:<br/>Check Overdue Payments]) --> Query["Query All Payments:<br/>Due Date < Today<br/>AND Balance > 0"]
+    Query --> LoopStart{Any Overdue<br/>Payments?}
+
+    LoopStart -->|No| End1([Task Complete:<br/>No Overdue Found])
+
+    LoopStart -->|Yes| LoopPayment["For Each Overdue Payment:"]
+    LoopPayment --> CalcDays["Calculate Days Overdue:<br/>Days = Today - Due Date"]
+    CalcDays --> ConvertMonths["Convert to Months:<br/>Months = Days / 30"]
+    ConvertMonths --> GetInterestRate["Get Contract Interest Rate<br/>from Database"]
+    GetInterestRate --> CalcInterest["Calculate Interest:<br/>Interest = Amount Due ×<br/>Interest Rate × Months"]
+    CalcInterest --> UpdateInterest["Update Payment:<br/>- Interest Amount<br/>- Total Amount<br/>- Balance<br/>- Status = OVERDUE"]
+    UpdateInterest --> SavePayment["Save Updated Payment<br/>to Database"]
+    SavePayment --> CheckDemand{Demand Letter<br/>Already Created?}
+
+    CheckDemand -->|Yes| CheckMore["More payments?"]
+    CheckDemand -->|No| GenDemand["Generate Demand Letter<br/>for Tenant"]
+    GenDemand --> DemandData["Demand Letter Contains:<br/>- Tenant Name<br/>- Contract #<br/>- Original Amount<br/>- Interest Charged<br/>- Total Payable<br/>- Days Overdue<br/>- Payment Instructions"]
+    DemandData --> SaveDemand["Save Demand Letter<br/>to Database"]
+    SaveDemand --> CreateNotif["Create Notification<br/>for Admin/Staff"]
+    CreateNotif --> NotifMsg["Notification:<br/>Demand Letter Generated<br/>for [Tenant Name]"]
+    NotifMsg --> CheckMore
+
+    CheckMore -->|Yes| LoopPayment
+    CheckMore -->|No| End2([Task Complete:<br/>All Overdue Processed])
+
+    style Start fill:#F44336,stroke:#C62828,color:#fff
+    style CalcInterest fill:#FF9800,stroke:#E65100,color:#fff
+    style GenDemand fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style CreateNotif fill:#2196F3,stroke:#1565C0,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff

@@ -1,0 +1,31 @@
+graph TD
+    Start([Scheduled Task:<br/>Check Contract Renewal]) --> Query["Query All Contracts:<br/>Status = ACTIVE"]
+    Query --> Loop{For Each<br/>Contract}
+
+    Loop -->|No More| End1([Task Complete])
+
+    Loop -->|Yes| CalcExpiry["Calculate Days Until Expiry:<br/>Days = End Date - Today"]
+    CalcExpiry --> Check2Months{Days Until<br/>Expiry ≤ 60?}
+
+    Check2Months -->|No| CheckNext["Check Next Contract"]
+    Check2Months -->|Yes| CheckNotif{Renewal Notification<br/>Sent in Last<br/>7 Days?}
+
+    CheckNotif -->|Yes| CheckNext
+    CheckNotif -->|No| UpdateStatus["Update Contract Status:<br/>Status = FOR_RENEWAL"]
+    UpdateStatus --> LoadRels["Load Contract Relations:<br/>- Tenant<br/>- Rental Space"]
+    LoadRels --> CreateNotif["Create Renewal Notification"]
+    CreateNotif --> NotifContent["Notification For:<br/>All Admin/Staff/Cashier<br/><br/>Message:<br/>'Contract #XXX for<br/>[Space Name]<br/>expires in Y days<br/>Contact tenant for renewal'"]
+    NotifContent --> UpdateTimestamp["Update:<br/>last_notification_sent<br/>= Today"]
+    UpdateTimestamp --> SaveNotif["Save Notification<br/>to Database"]
+    SaveNotif --> CheckNext
+
+    CheckNext -->|More Contracts| Loop
+    CheckNext -->|Done| End2([All Contracts Checked<br/>Notifications Sent])
+
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style Check2Months fill:#FF9800,stroke:#E65100,color:#fff
+    style UpdateStatus fill:#2196F3,stroke:#1565C0,color:#fff
+    style CreateNotif fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style NotifContent fill:#00BCD4,stroke:#00838F,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff

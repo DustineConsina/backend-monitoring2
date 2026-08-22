@@ -1,0 +1,24 @@
+digraph DFD0 {
+  graph [label="Level 0\nContext Flow Diagram", labelloc=t, fontsize=20, fontname="Times New Roman", rankdir=LR, splines=ortho];
+  node  [fontname="Times New Roman", fontsize=12];
+  edge  [fontname="Times New Roman", fontsize=11];
+
+  // External entities (rectangles)
+  Tenant     [shape=box, width=1.6, height=0.7, label="Tenant"];
+  Cashier    [shape=box, width=1.6, height=0.7, label="Cashier"];
+  AdminStaff [shape=box, width=1.8, height=0.7, label="Admin/Staff"];
+
+  // System (Process 0) - rounded rectangle like the sample center
+  System [shape=box, style="rounded", width=2.6, height=1.1,
+          label="0\nContract Monitoring\nSystem"];
+
+  // Flows
+  Tenant -> System  [label="Login / Requests\n(view contracts, payments,\nnotifications)"];
+  System -> Tenant  [label="Contracts / QR\nPayment status\nNotifications"];
+
+  Cashier -> System [label="Record rent payment\n(offline) + receipt info"];
+  System -> Cashier [label="Tenant/Contract lookup\nPayment due details\nConfirmation/receipt"];
+
+  AdminStaff -> System [label="Manage tenants/spaces\nCreate/update contracts\nReports + Audit Logs"];
+  System -> AdminStaff [label="Dashboards\nReports\nAudit logs"];
+}

@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content & Data Flow Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .diagram-card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+            transition: transform 0.3s ease;
+        }
+
+        .diagram-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .diagram-title {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+        }
+
+        .diagram-description {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 1em;
+            line-height: 1.8;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: #f9f9f9;
+            border-radius: 5px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        .details-section {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f0f7ff;
+            border-left: 5px solid #667eea;
+            border-radius: 5px;
+        }
+
+        .details-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .detail-item {
+            margin-bottom: 12px;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+
+        .detail-item strong {
+            color: #667eea;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+        }
+
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            opacity: 0.9;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 1200px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .legend-box {
+            background: #fff3e0;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            border-left: 4px solid #ff9800;
+        }
+
+        .api-endpoint {
+            font-family: 'Courier New', monospace;
+            background: #ffe0b2;
+            padding: 8px 12px;
+            border-radius: 3px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+
+        .database-operation {
+            font-family: 'Courier New', monospace;
+            background: #c8e6c9;
+            padding: 8px 12px;
+            border-radius: 3px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔄 Content Flow & Data Flow Diagrams</h1>
+            <p class="subtitle">Comprehensive System Architecture & Data Movement</p>
+        </header>
+
+        <!-- CONTENT FLOW DIAGRAM -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">📄 Content Flow - Frontend Architecture</h2>
+            <p class="diagram-description">
+                Shows how content flows through the frontend application. Displays the page hierarchy,
+                component structure, user navigation paths, and how data is presented to users through the UI.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    Browser["🌐 Browser<br/>Next.js App"]
+
+    Browser --> Auth{Authenticated?}
+    Auth -->|No| LoginPage["📱 Login Page<br/>- Email Input<br/>- Password Input<br/>- Register Link"]
+
+    Auth -->|Yes| CheckRole{User Role?}
+
+    CheckRole -->|Admin/Staff| AdminLayout["🎨 Admin Layout<br/>Header | Sidebar | Main Content"]
+    CheckRole -->|Cashier| CashierLayout["🎨 Cashier Layout<br/>Header | Sidebar | Main Content"]
+    CheckRole -->|Tenant| TenantLayout["🎨 Tenant Layout<br/>Header | Sidebar | Main Content"]
+
+    %% Admin Content Flow
+    AdminLayout --> AdminNav["📌 Admin Navigation:<br/>- Dashboard<br/>- Contracts<br/>- Tenants<br/>- Payments<br/>- Reports<br/>- Spaces<br/>- Messages"]
+
+    AdminNav -->|Dashboard| Dashboard["📊 Dashboard Page<br/>📈 Statistics Charts<br/>- Total Contracts<br/>- Active Contracts<br/>- Overdue Payments<br/>- Revenue"]
+
+    AdminNav -->|Contracts| ContractsList["📋 Contracts List<br/>- Contract Table<br/>- Search Bar<br/>- Filters<br/>- Status Badges<br/>- Action Buttons"]
+
+    ContractsList -->|View Contract| ContractDetail["🔍 Contract Detail Page<br/>- Tenant Info<br/>- Space Info<br/>- Contract Terms<br/>- Payment Schedule<br/>- Action Buttons"]
+
+    ContractsList -->|Create Contract| CreateContract["➕ Create Contract Form<br/>- Tenant Selector<br/>- Space Selector<br/>- Date Pickers<br/>- Amount Fields<br/>- File Upload<br/>- Submit Button"]
+
+    AdminNav -->|Tenants| TenantsList["👥 Tenants List<br/>- Tenant Table<br/>- Search<br/>- Add Tenant Button"]
+
+    AdminNav -->|Payments| PaymentsList["💰 Payments List<br/>- Payment Table<br/>- Status Filter<br/>- Month Filter<br/>- Sort Options"]
+
+    PaymentsList -->|View Payment| PaymentDetail["💵 Payment Detail<br/>- Tenant Info<br/>- Contract Info<br/>- Amount Due<br/>- Amount Paid<br/>- Balance<br/>- Demand Letter"]
+
+    AdminNav -->|Reports| Reports["📊 Reports Page<br/>- Report Type Selector<br/>- Filters<br/>- Export Button<br/>- Report Display"]
+
+    %% Cashier Content Flow
+    CashierLayout --> CashierNav["📌 Cashier Navigation:<br/>- Dashboard<br/>- Payments<br/>- Collection<br/>- Demand Letters<br/>- Messages"]
+
+    CashierNav -->|Dashboard| CashierDash["📊 Cashier Dashboard<br/>- Today's Collection<br/>- Collectible Payments<br/>- Recent Transactions"]
+
+    CashierNav -->|Payments| CashierPayments["💰 Collectible Payments<br/>- Payment List<br/>- Select Payment<br/>- Record Button"]
+
+    CashierPayments -->|Record Payment| RecordPaymentForm["➕ Record Payment Form<br/>- Tenant Info Display<br/>- Amount Field<br/>- Method Selector<br/>- Reference Input<br/>- Remarks Field<br/>- Submit Button"]
+
+    CashierNav -->|Demand Letters| DemandLetterList["📄 Demand Letters List<br/>- Letter Table<br/>- Filter by Contract<br/>- Download Button<br/>- Print Button"]
+
+    %% Tenant Content Flow
+    TenantLayout --> TenantNav["📌 Tenant Navigation:<br/>- Dashboard<br/>- My Contracts<br/>- My Payments<br/>- Messages"]
+
+    TenantNav -->|Dashboard| TenantDash["📊 Tenant Dashboard<br/>- Contract Summary<br/>- Payment Status<br/>- Due Date Info"]
+
+    TenantNav -->|My Contracts| MyContracts["📋 My Contracts<br/>- Active Contracts<br/>- Contract Details<br/>- Download Lease<br/>- QR Code Viewer"]
+
+    TenantNav -->|My Payments| MyPayments["💵 My Payments<br/>- Payment History<br/>- Due Payments<br/>- Paid Payments"]
+
+    Dashboard --> SharedComponents["🔧 Shared Components:<br/>- Header<br/>- Footer<br/>- Charts<br/>- Tables<br/>- Forms<br/>- Notifications"]
+
+    style Browser fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style LoginPage fill:#2196F3,stroke:#1565C0,color:#fff
+    style AdminLayout fill:#FF9800,stroke:#E65100,color:#fff
+    style CashierLayout fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style TenantLayout fill:#00BCD4,stroke:#00838F,color:#fff
+    style Dashboard fill:#FFC107,stroke:#F57F17,color:#000
+    style ContractsList fill:#FFC107,stroke:#F57F17,color:#000
+    style PaymentsList fill:#FFC107,stroke:#F57F17,color:#000
+    style Reports fill:#FFC107,stroke:#F57F17,color:#000
+            </div>
+
+            <div class="details-section">
+                <h3>📍 Content Flow Details</h3>
+
+                <div class="two-column">
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">🎨 Frontend Structure (Next.js)</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>App Router:</strong> Next.js App directory with route segments</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>Contexts:</strong> AuthContext for user/auth state</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>Components:</strong> Reusable UI components (Tables, Forms, Charts)</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>Pages:</strong> Role-based page layouts</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>Rendering:</strong> Client-side rendered content</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">📋 Page Hierarchy</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>/dashboard:</strong> Main layout wrapper</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>/dashboard/contracts:</strong> List & manage contracts</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>/dashboard/payments:</strong> Payment management</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>/dashboard/reports:</strong> Analytics & reports</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>/dashboard/cashier:</strong> Cashier specific dashboard</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="legend-box">
+                    <strong>📌 Key Content Elements:</strong>
+                    <ul style="margin-left: 20px; margin-top: 10px; line-height: 1.8;">
+                        <li><strong>Navigation:</strong> Dynamic based on user role</li>
+                        <li><strong>Tables:</strong> Sortable, filterable data displays</li>
+                        <li><strong>Forms:</strong> Modal or page-based forms for CRUD operations</li>
+                        <li><strong>Charts:</strong> Recharts for statistics visualization</li>
+                        <li><strong>Notifications:</strong> Toast/Alert messages for user feedback</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATA FLOW DIAGRAM -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">🔄 Data Flow - Request/Response Cycle</h2>
+            <p class="diagram-description">
+                Illustrates how data flows between the frontend application, backend API, and database.
+                Shows the complete request/response cycle for different operations.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    User["👤 User Action<br/>in Browser"]
+
+    User -->|1. Click Button| FrontendAction["📱 Frontend Event<br/>onClick Handler"]
+
+    FrontendAction -->|2. Call API| APIClient["🔌 API Client<br/>apiClient.js"]
+
+    APIClient -->|3. Create Request| HTTPRequest["📡 HTTP Request<br/>GET/POST/PUT/PATCH<br/>+ Headers + Auth Token"]
+
+    HTTPRequest -->|4. Send to Backend| APIEndpoint["🌐 API Endpoint<br/>Laravel Route<br/>/api/resource"]
+
+    APIEndpoint -->|5. Authenticate| Middleware["🔐 Middleware<br/>- CORS Check<br/>- Auth Validation<br/>- Role Check"]
+
+    Middleware -->|6. Route to Controller| Controller["⚙️ Controller<br/>Handle Business Logic<br/>Validate Input"]
+
+    Controller -->|7. Query Database| Model["💾 Model<br/>Eloquent ORM<br/>Relationships"]
+
+    Model -->|8. Execute Query| Database["🗄️ Database<br/>MySQL<br/>SELECT/INSERT/UPDATE"]
+
+    Database -->|9. Return Data| Model
+    Model -->|10. Format Data| Controller
+
+    Controller -->|11. JSON Response| Response["📦 JSON Response<br/>HTTP Status<br/>Data/Errors"]
+
+    Response -->|12. Send Response| HTTPResponse["📡 HTTP Response<br/>Status Code<br/>Response Body"]
+
+    HTTPResponse -->|13. Receive Response| APIClient
+    APIClient -->|14. Parse Data| FrontendState["💾 Store in State<br/>useState/Context<br/>Update UI"]
+
+    FrontendState -->|15. Re-render| UIUpdate["🎨 Update Component<br/>Display New Data<br/>User Sees Changes"]
+
+    style User fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style FrontendAction fill:#2196F3,stroke:#1565C0,color:#fff
+    style APIClient fill:#2196F3,stroke:#1565C0,color:#fff
+    style HTTPRequest fill:#FF9800,stroke:#E65100,color:#fff
+    style APIEndpoint fill:#FF9800,stroke:#E65100,color:#fff
+    style Middleware fill:#F44336,stroke:#C62828,color:#fff
+    style Controller fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style Model fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style Database fill:#00897B,stroke:#004D40,color:#fff
+    style Response fill:#FF9800,stroke:#E65100,color:#fff
+    style UIUpdate fill:#4CAF50,stroke:#2E7D32,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>📊 Data Flow Step-by-Step</h3>
+
+                <div class="flow-step">
+                    <div class="step-number">1-2</div>
+                    <div><strong>User Interaction:</strong> User clicks button → Frontend event triggered</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-number">3-4</div>
+                    <div><strong>API Request:</strong> Frontend calls API client → HTTP request sent with authentication token</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-number">5-6</div>
+                    <div><strong>Server Processing:</strong> Middleware validates request → Route to appropriate controller</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-number">7-8</div>
+                    <div><strong>Database Access:</strong> Controller uses Model → Execute database query</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-number">9-12</div>
+                    <div><strong>Response Creation:</strong> Database returns data → Controller formats JSON response</div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-number">13-15</div>
+                    <div><strong>Frontend Update:</strong> Frontend receives response → State updates → UI re-renders</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SPECIFIC WORKFLOWS - CONTRACT CREATION DATA FLOW -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">📋 Detailed Data Flow: Contract Creation</h2>
+            <p class="diagram-description">
+                Shows complete data movement for contract creation from form submission through database storage.
+            </p>
+
+            <div class="mermaid">
+graph LR
+    subgraph Frontend["🖥️ FRONTEND (Next.js)"]
+        A1["User Fill Form:<br/>- Tenant ID<br/>- Space ID<br/>- Start Date<br/>- End Date<br/>- Monthly Rent<br/>- Deposit<br/>- Terms"]
+        A2["Submit Form"]
+        A3["API Call:<br/>POST /api/contracts"]
+        A4["formData Object:<br/>{<br/>tenantId: 5,<br/>rentalSpaceId: 3,<br/>startDate: 2025-05-01,<br/>monthlyRent: 15000,<br/>...<br/>}"]
+    end
+
+    subgraph Network["📡 NETWORK"]
+        B1["HTTP POST Request<br/>Headers:<br/>- Authorization<br/>- Content-Type"]
+        B2["Request Body:<br/>JSON formData"]
+    end
+
+    subgraph Backend["⚙️ BACKEND (Laravel)"]
+        C1["Router:<br/>POST /api/contracts"]
+        C2["Middleware:<br/>auth:sanctum<br/>CORS Check"]
+        C3["ContractController<br/>@store method"]
+        C4["Validation:<br/>tenant exists?<br/>space exists?<br/>dates valid?"]
+        C5["Create Contract:<br/>Contract::create<br/>$data"]
+        C6["Generate Payment<br/>Schedule:<br/>$contract<br/>->generatePaymentSchedule"]
+        C7["Create Payments:<br/>for each month:<br/>Payment::create"]
+        C8["Create Notification:<br/>Notification<br/>::create"]
+    end
+
+    subgraph Database["🗄️ DATABASE (MySQL)"]
+        D1["INSERT INTO contracts<br/>contract_number,<br/>tenant_id,<br/>rental_space_id,<br/>start_date,<br/>end_date,<br/>monthly_rental,<br/>deposit_amount,<br/>status,<br/>created_at"]
+        D2["INSERT INTO payments<br/>payment_number,<br/>contract_id,<br/>tenant_id,<br/>billing_period_start,<br/>billing_period_end,<br/>due_date,<br/>amount_due,<br/>status"]
+        D3["INSERT INTO notifications<br/>user_id,<br/>type,<br/>title,<br/>message,<br/>data,<br/>created_at"]
+    end
+
+    subgraph Response["📤 RESPONSE"]
+        E1["HTTP 201 Response<br/>Status: Created"]
+        E2["Response Body:<br/>{<br/>success: true,<br/>data: {<br/>id: 42,<br/>contract_number: 'C-2025-001',<br/>status: 'active',<br/>...<br/>}<br/>}"]
+    end
+
+    subgraph FrontendUpdate["💾 FRONTEND UPDATE"]
+        F1["Parse Response"]
+        F2["Update State:<br/>setContracts[...]"]
+        F3["Display Success<br/>Message"]
+        F4["Redirect to<br/>Contract Detail"]
+        F5["Fetch Updated<br/>Contract List"]
+    end
+
+    A1 --> A2
+    A2 --> A3
+    A3 --> A4
+    A4 --> B1
+    B1 --> B2
+    B2 --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> C4
+    C4 -->|Valid| C5
+    C5 --> C6
+    C6 --> C7
+    C7 --> C8
+    C8 --> D1
+    D1 --> D2
+    D2 --> D3
+    D3 --> E1
+    E1 --> E2
+    E2 --> F1
+    F1 --> F2
+    F2 --> F3
+    F3 --> F4
+    F4 --> F5
+
+    style Frontend fill:#2196F3,stroke:#1565C0,color:#fff
+    style Network fill:#FF9800,stroke:#E65100,color:#fff
+    style Backend fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style Database fill:#00897B,stroke:#004D40,color:#fff
+    style Response fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style FrontendUpdate fill:#2196F3,stroke:#1565C0,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>📥 Request/Response Example</h3>
+
+                <div style="margin-bottom: 20px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">📤 Frontend → Backend Request</h4>
+                    <div class="api-endpoint">POST /api/contracts</div>
+                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px;">
+Headers:
+Authorization: Bearer {sanctum_token}
+Content-Type: application/json
+
+Body:
+{
+  "tenant_id": 5,
+  "rental_space_id": 3,
+  "start_date": "2025-05-01",
+  "end_date": "2027-04-30",
+  "monthly_rental": 15000.00,
+  "deposit_amount": 45000.00,
+  "interest_rate": 3.0,
+  "terms_conditions": "Standard rental agreement terms..."
+}</pre>
+                </div>
+
+                <div>
+                    <h4 style="color: #667eea; margin-bottom: 10px;">📥 Backend → Frontend Response</h4>
+                    <div class="api-endpoint">HTTP 201 Created</div>
+                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px;">
+{
+  "success": true,
+  "message": "Contract created successfully",
+  "data": {
+    "id": 42,
+    "contract_number": "C-2025-001",
+    "tenant_id": 5,
+    "rental_space_id": 3,
+    "start_date": "2025-05-01",
+    "end_date": "2027-04-30",
+    "monthly_rental": "15000.00",
+    "status": "active",
+    "created_at": "2025-04-20T10:30:00Z"
+  }
+}</pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- DATABASE OPERATIONS FLOW -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">💾 Database Operations Flow</h2>
+            <p class="diagram-description">
+                Shows how different operations interact with the database and how data relationships are maintained.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    subgraph CRUD["CRUD Operations"]
+        A["Create Contract"]
+        B["Read Contract"]
+        C["Update Contract"]
+        D["Delete Contract"]
+    end
+
+    subgraph Operations["Database Operations"]
+        A -->|INSERT| A1["INSERT INTO contracts"]
+        A1 --> A2["Generate auto ID"]
+        A2 --> A3["Trigger: Create Payment Schedule"]
+
+        B -->|SELECT| B1["SELECT * FROM contracts"]
+        B1 --> B2["with relationships:<br/>- Tenant (belongsTo)<br/>- RentalSpace (belongsTo)<br/>- Payments (hasMany)<br/>- DemandLetters (hasMany)"]
+        B2 --> B3["LEFT JOIN tenant<br/>LEFT JOIN rental_spaces<br/>LEFT JOIN payments"]
+
+        C -->|UPDATE| C1["UPDATE contracts<br/>SET status = ?"]
+        C1 --> C2["Verify constraints:<br/>- Status valid?<br/>- Can transition?"]
+        C2 --> C3["Update timestamp"]
+        C3 --> C4["Trigger: Create Notification"]
+
+        D -->|SOFT DELETE| D1["UPDATE contracts<br/>SET deleted_at = NOW()"]
+        D1 --> D2["Data retained<br/>for audit trail"]
+    end
+
+    subgraph Relationships["Data Relationships"]
+        R1["Contract 1 ——→ Many Payments"]
+        R2["Contract 1 ——→ 1 Tenant"]
+        R3["Contract 1 ——→ 1 RentalSpace"]
+        R4["Payment 1 ——→ Many DemandLetters"]
+        R5["Tenant 1 ——→ Many Contracts"]
+    end
+
+    subgraph Transactions["Transaction Safety"]
+        T1["Begin Transaction"]
+        T2["Execute Operations"]
+        T3["Commit or Rollback"]
+        T4["Consistency maintained"]
+    end
+
+    A3 --> A4["Payment Schedule:<br/>Generate monthly payments"]
+    A4 --> A5["For duration_months:<br/>Create Payment record<br/>with due_date,<br/>amount_due,<br/>status=pending"]
+
+    style CRUD fill:#2196F3,stroke:#1565C0,color:#fff
+    style Operations fill:#FF9800,stroke:#E65100,color:#fff
+    style Relationships fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style Transactions fill:#00897B,stroke:#004D40,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>📋 Database Schema & Relationships</h3>
+
+                <div class="two-column">
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">🔗 Model Relationships</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>Contract ← Tenant:</strong> belongsTo relationship</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>Contract ← RentalSpace:</strong> belongsTo relationship</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>Contract → Payments:</strong> hasMany relationship</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>Payment → DemandLetters:</strong> hasMany relationship</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>Tenant → Contracts:</strong> hasMany relationship</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">💾 Key Tables</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>contracts:</strong> Main contract records</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>payments:</strong> Monthly payment records</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>tenants:</strong> Tenant information</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>rental_spaces:</strong> Available rental spaces</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>demand_letters:</strong> Overdue notices</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API ENDPOINTS FLOW -->
+        <div class="diagram-card">
+            <h2 class="diagram-title">🔌 API Endpoints & Data Flow Map</h2>
+            <p class="diagram-description">
+                Complete mapping of all API endpoints and their data flow patterns.
+            </p>
+
+            <div class="mermaid">
+graph TD
+    API["🌐 API Server<br/>http://localhost:8000/api"]
+
+    %% Authentication Endpoints
+    API -->|POST| AUTH["🔐 Authentication"]
+    AUTH -->|/register| RegData["Register: email, password → Token"]
+    AUTH -->|/login| LoginData["Login: email, password → Token"]
+    AUTH -->|/logout| LogoutData["Logout: Clear token"]
+    AUTH -->|/me| MeData["Get Current User"]
+
+    %% Contract Endpoints
+    API -->|CRUD| CONTRACT["📋 Contracts"]
+    CONTRACT -->|GET /contracts| GetContracts["List all contracts<br/>with filters"]
+    CONTRACT -->|POST /contracts| PostContract["Create new contract<br/>Generate payments"]
+    CONTRACT -->|GET /contracts/{id}| GetOne["Get contract detail<br/>with relationships"]
+    CONTRACT -->|PUT /contracts/{id}| UpdateContract["Update contract"]
+    CONTRACT -->|POST /contracts/{id}/activate| Activate["Activate contract<br/>Generate schedule"]
+    CONTRACT -->|POST /contracts/{id}/renew| Renew["Renew contract"]
+
+    %% Tenant Endpoints
+    API -->|CRUD| TENANT["👥 Tenants"]
+    TENANT -->|GET /tenants| GetTenants["List all tenants"]
+    TENANT -->|POST /tenants| PostTenant["Create tenant"]
+    TENANT -->|GET /tenants/{id}| GetTenant["Get tenant detail"]
+    TENANT -->|POST /tenants/{id}/upload-picture| UploadPic["Upload tenant photo"]
+
+    %% Payment Endpoints
+    API -->|CRUD| PAYMENT["💰 Payments"]
+    PAYMENT -->|GET /payments| GetPayments["List payments<br/>with status filter"]
+    PAYMENT -->|POST /payments| PostPayment["Create payment record"]
+    PAYMENT -->|POST /payments/{id}/record| RecordPay["Record payment<br/>Update balance"]
+    PAYMENT -->|GET /payable-contracts| PayableContracts["Get contracts with<br/>pending payments"]
+
+    %% Rental Space Endpoints
+    API -->|CRUD| SPACE["🏢 Rental Spaces"]
+    SPACE -->|GET /rental-spaces| GetSpaces["List all spaces"]
+    SPACE -->|POST /rental-spaces| PostSpace["Create space"]
+    SPACE -->|GET /rental-spaces-available| AvailableSpaces["Get available spaces"]
+
+    %% Reports Endpoints
+    API -->|GET| REPORT["📊 Reports"]
+    REPORT -->|/reports/dashboard-stats| Stats["Dashboard statistics"]
+    REPORT -->|/reports/contracts| ContractReport["Contract report"]
+    REPORT -->|/reports/payments| PaymentReport["Payment report"]
+    REPORT -->|/reports/delinquency| Delinquency["Delinquency report"]
+    REPORT -->|/reports/revenue| Revenue["Revenue report"]
+
+    %% Demand Letters
+    API -->|GET| DEMAND["📄 Demand Letters"]
+    DEMAND -->|/demand-letters| AllLetters["List all letters"]
+    DEMAND -->|/contracts/{id}/demand-letters| ContractLetters["Letters by contract"]
+    DEMAND -->|/demand-letters/{id}/download| DownloadLetter["Download PDF"]
+
+    %% Notifications
+    API -->|CRUD| NOTIF["🔔 Notifications"]
+    NOTIF -->|GET /notifications| GetNotif["Get notifications"]
+    NOTIF -->|PATCH /notifications/{id}/read| ReadNotif["Mark as read"]
+    NOTIF -->|DELETE /notifications/{id}| DeleteNotif["Delete notification"]
+
+    style API fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style AUTH fill:#2196F3,stroke:#1565C0,color:#fff
+    style CONTRACT fill:#FF9800,stroke:#E65100,color:#fff
+    style TENANT fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style PAYMENT fill:#F44336,stroke:#C62828,color:#fff
+    style SPACE fill:#00BCD4,stroke:#00838F,color:#fff
+    style REPORT fill:#FFC107,stroke:#F57F17,color:#000
+    style DEMAND fill:#FF5722,stroke:#D84315,color:#fff
+    style NOTIF fill:#673AB7,stroke:#512DA8,color:#fff
+            </div>
+
+            <div class="details-section">
+                <h3>📋 Endpoint Categories & Data Types</h3>
+
+                <div class="two-column">
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">📤 Request Data Types</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>JSON Body:</strong> Form data in JSON format</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>Query Params:</strong> Filters, pagination, sort</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>URL Params:</strong> Resource IDs (/:id)</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>Headers:</strong> Auth token, Content-Type</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>Files:</strong> PDFs, images (multipart/form-data)</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 style="color: #667eea; margin-bottom: 10px;">📥 Response Data Types</h4>
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <div><strong>JSON Data:</strong> Resource records with fields</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <div><strong>Collections:</strong> Arrays of records</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <div><strong>Pagination:</strong> data, current_page, total</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">4</div>
+                            <div><strong>Relationships:</strong> Nested data structures</div>
+                        </div>
+                        <div class="flow-step">
+                            <div class="step-number">5</div>
+                            <div><strong>Files:</strong> PDF download stream</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 5px;">
+                    <h4 style="color: #667eea; margin-bottom: 10px;">🔒 Authentication Flow</h4>
+                    <div class="flow-step">
+                        <div class="step-number">1</div>
+                        <div><strong>User Login:</strong> POST /login with credentials</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">2</div>
+                        <div><strong>Token Generated:</strong> Sanctum creates bearer token</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">3</div>
+                        <div><strong>Token Storage:</strong> Stored in browser localStorage</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">4</div>
+                        <div><strong>Token Usage:</strong> Included in Authorization header</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">5</div>
+                        <div><strong>Middleware Check:</strong> auth:sanctum middleware validates token</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>🔄 Content & Data Flow Architecture | Comprehensive System Design</p>
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+        mermaid.contentLoaded();
+    </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+graph TD
+    Start([Admin Wants to<br/>Create Contract]) --> SelectTenant["Click: Create New Contract"]
+    SelectTenant --> TenantForm["Select Tenant<br/>from Dropdown"]
+    TenantForm --> SpaceForm["Select Rental Space<br/>from Available Spaces"]
+    SpaceForm --> DetailsForm["Fill Contract Details:<br/>- Start Date<br/>- End Date<br/>- Monthly Rental<br/>- Deposit Amount<br/>- Interest Rate<br/>- Terms & Conditions"]
+    DetailsForm --> UploadFile["Upload Contract File<br/>PDF/Document"]
+    UploadFile --> ReviewForm["Review Filled Form"]
+    ReviewForm --> SubmitChoice{Action?}
+
+    SubmitChoice -->|Save Only| SaveDB["Save Contract<br/>Status: Draft"]
+    SubmitChoice -->|Save & Activate| SaveActivate["Save Contract<br/>Status: Draft"]
+
+    SaveDB --> End1([Contract Created])
+
+    SaveActivate --> ActivateLogic["Activate Contract<br/>Status: Active"]
+    ActivateLogic --> GenPayment["Generate Payment<br/>Schedule"]
+    GenPayment --> PaymentDB["Create Payment Records<br/>Monthly amounts"]
+    PaymentDB --> CreateNotif["Create Activation<br/>Notification"]
+    CreateNotif --> NotifDB["Send to All<br/>Admin/Staff/Cashier"]
+    NotifDB --> End2([Contract Active &<br/>Payment Schedule Ready])
+
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style ActivateLogic fill:#FF9800,stroke:#E65100,color:#fff
+    style GenPayment fill:#2196F3,stroke:#1565C0,color:#fff
+    style NotifDB fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff

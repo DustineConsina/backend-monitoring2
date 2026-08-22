@@ -252,8 +252,12 @@ class RentalSpaceController extends Controller
     public function getAvailableSpaces(Request $request)
     {
         try {
-            // Use the 'available' scope from RentalSpace model
-            $query = RentalSpace::available()->with('contracts');
+            // Only spaces marked available and without active or pending contracts
+            $query = RentalSpace::where('status', 'available')
+                ->whereDoesntHave('contracts', function ($q) {
+                    $q->whereIn('status', ['active', 'pending']);
+                })
+                ->with('contracts');
 
             // Optional: filter by space type
             if ($request->has('space_type')) {

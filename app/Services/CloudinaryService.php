@@ -34,6 +34,8 @@ class CloudinaryService
                         'has_api_key' => (bool)$apiKey,
                         'has_api_secret' => (bool)$apiSecret,
                     ]);
+                    $this->cloudinary = null;
+                    return;
                 }
                 
                 $this->cloudinary = new Cloudinary([
@@ -53,15 +55,7 @@ class CloudinaryService
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            // Still create a Cloudinary instance even if initialization fails
-            // This prevents the entire app from crashing
-            $this->cloudinary = new Cloudinary([
-                'cloud' => [
-                    'cloud_name' => '',
-                    'api_key' => '',
-                    'api_secret' => '',
-                ]
-            ]);
+            $this->cloudinary = null;
             $this->cloudName = '';
         }
     }
@@ -77,6 +71,13 @@ class CloudinaryService
     public function uploadFile(UploadedFile $file, string $folder = 'profile-pictures', ?string $public_id = null): array
     {
         try {
+            if (!$this->cloudinary) {
+                return [
+                    'success' => false,
+                    'message' => 'Cloudinary is not configured for this environment.',
+                ];
+            }
+
             $options = [
                 'folder' => $folder,
                 'resource_type' => 'auto',
@@ -127,6 +128,10 @@ class CloudinaryService
     public function deleteFile(string $public_id): bool
     {
         try {
+            if (!$this->cloudinary) {
+                return false;
+            }
+
             $this->cloudinary->uploadApi()->destroy($public_id);
             return true;
         } catch (\Exception $e) {

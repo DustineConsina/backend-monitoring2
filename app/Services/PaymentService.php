@@ -14,13 +14,12 @@ class PaymentService
      */
     public function generateMonthlyPayment(Contract $contract, Carbon $billingDate)
     {
-        // Determine which month of the contract we're in based on contract start date
-        // e.g., contract starts Jan 15, so month 1 is Jan 15-Feb 14, month 2 is Feb 15-Mar 14, etc.
+        // Determine which contract billing cycle we're in.
         $contractStart = $contract->start_date;
         $monthsElapsed = $contractStart->diffInMonths($billingDate);
         
-        // Calculate billing period dates based on contract anniversary
-        // Period runs from anniversary date to anniversary date (e.g., Feb 22 to Mar 22)
+        // Each billing period follows the contract anniversary
+        // (e.g., Aug 20-Sep 20).
         $billingPeriodStart = $contractStart->copy()->addMonths($monthsElapsed);
         $billingPeriodEnd = $contractStart->copy()->addMonths($monthsElapsed + 1);
         

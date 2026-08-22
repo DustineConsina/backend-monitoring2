@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contract Monitoring System - Activity Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .diagrams-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .diagram-card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .diagram-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        }
+
+        .diagram-title {
+            font-size: 1.8em;
+            color: #667eea;
+            margin-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .diagram-description {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background: #f9f9f9;
+            border-radius: 5px;
+            padding: 20px;
+        }
+
+        .legend {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+        }
+
+        .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 1200px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .diagram-title {
+                font-size: 1.3em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏢 Contract Monitoring System</h1>
+            <p class="subtitle">Activity Diagrams & Workflows</p>
+        </header>
+
+        <div class="diagrams-grid">
+            <!-- Diagram 1: Authentication Flow -->
+            <div class="diagram-card">
+                <h2 class="diagram-title">1️⃣ Authentication & Login Flow</h2>
+                <p class="diagram-description">
+                    Shows how users authenticate into the system. Users register or log in with credentials,
+                    receive a Sanctum token, and are redirected to their role-specific dashboard
+                    (Admin, Cashier, or Tenant).
+                </p>
+                <div class="mermaid">
+graph TD
+    Start([User Visits Application]) --> Check{User<br/>Authenticated?}
+    Check -->|No| LoginPage[Login Page Displayed]
+    LoginPage --> EnterCreds[Enter Email & Password]
+    EnterCreds --> ValidateCreds{Valid<br/>Credentials?}
+    ValidateCreds -->|No| ErrorMsg[Show Error Message]
+    ErrorMsg --> EnterCreds
+    ValidateCreds -->|Yes| CreateToken["Create Sanctum Token<br/>(Backend)"]
+    CreateToken --> StoreToken["Store Token<br/>(LocalStorage)"]
+    StoreToken --> CheckRole{User Role?}
+    Check -->|Yes| CheckRole
+    CheckRole -->|Admin/Staff| AdminDash["Redirect to<br/>Admin Dashboard"]
+    CheckRole -->|Cashier| CashierDash["Redirect to<br/>Cashier Dashboard"]
+    CheckRole -->|Tenant| TenantDash["Redirect to<br/>Tenant Portal"]
+    AdminDash --> End1([Dashboard Ready])
+    CashierDash --> End2([Dashboard Ready])
+    TenantDash --> End3([Dashboard Ready])
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style LoginPage fill:#2196F3,stroke:#1565C0,color:#fff
+    style AdminDash fill:#FF9800,stroke:#E65100,color:#fff
+    style CashierDash fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style TenantDash fill:#00BCD4,stroke:#00838F,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End3 fill:#4CAF50,stroke:#2E7D32,color:#fff
+                </div>
+                <div class="legend">
+                    <strong>Key Points:</strong> Laravel Sanctum authentication, Role-based access control,
+                    Three user roles (Admin/Staff, Cashier, Tenant)
+                </div>
+            </div>
+
+            <!-- Diagram 2: Contract Creation -->
+            <div class="diagram-card">
+                <h2 class="diagram-title">2️⃣ Contract Creation & Activation</h2>
+                <p class="diagram-description">
+                    Admin/Staff can create contracts by selecting a tenant and rental space, filling in details
+                    (dates, rental amount, deposit, interest rate), and optionally activating immediately.
+                    Activation triggers payment schedule generation and sends notifications.
+                </p>
+                <div class="mermaid">
+graph TD
+    Start([Admin Wants to<br/>Create Contract]) --> SelectTenant["Click: Create New Contract"]
+    SelectTenant --> TenantForm["Select Tenant<br/>from Dropdown"]
+    TenantForm --> SpaceForm["Select Rental Space<br/>from Available Spaces"]
+    SpaceForm --> DetailsForm["Fill Contract Details:<br/>- Start Date<br/>- End Date<br/>- Monthly Rental<br/>- Deposit Amount<br/>- Interest Rate<br/>- Terms & Conditions"]
+    DetailsForm --> UploadFile["Upload Contract File<br/>PDF/Document"]
+    UploadFile --> ReviewForm["Review Filled Form"]
+    ReviewForm --> SubmitChoice{Action?}
+    SubmitChoice -->|Save Only| SaveDB["Save Contract<br/>Status: Draft"]
+    SubmitChoice -->|Save & Activate| SaveActivate["Save Contract<br/>Status: Draft"]
+    SaveDB --> End1([Contract Created])
+    SaveActivate --> ActivateLogic["Activate Contract<br/>Status: Active"]
+    ActivateLogic --> GenPayment["Generate Payment<br/>Schedule"]
+    GenPayment --> PaymentDB["Create Payment Records<br/>Monthly amounts"]
+    PaymentDB --> CreateNotif["Create Activation<br/>Notification"]
+    CreateNotif --> NotifDB["Send to All<br/>Admin/Staff/Cashier"]
+    NotifDB --> End2([Contract Active &<br/>Payment Schedule Ready])
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style ActivateLogic fill:#FF9800,stroke:#E65100,color:#fff
+    style GenPayment fill:#2196F3,stroke:#1565C0,color:#fff
+    style NotifDB fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+                </div>
+                <div class="legend">
+                    <strong>Key Points:</strong> Contract creation requires tenant and space selection,
+                    Optional immediate activation, Auto-generated payment schedule, Admin notifications
+                </div>
+            </div>
+
+            <!-- Diagram 3: Payment Recording -->
+            <div class="diagram-card">
+                <h2 class="diagram-title">3️⃣ Payment Recording (Cashier)</h2>
+                <p class="diagram-description">
+                    Cashiers view collectible payments, select one to record, enter payment amount and method,
+                    and the system calculates the remaining balance. Payments marked as "Paid" (balance = 0)
+                    or "Partial" (balance > 0), with receipts generated for tenants.
+                </p>
+                <div class="mermaid">
+graph TD
+    Start([Cashier Clicks<br/>Record Payment]) --> ViewCollectibles["View Collectibles<br/>List"]
+    ViewCollectibles --> SelectPayment["Select Payment<br/>to Record"]
+    SelectPayment --> GetDetails["Fetch Payment Details:<br/>- Tenant Name<br/>- Contract #<br/>- Amount Due<br/>- Balance<br/>- Due Date"]
+    GetDetails --> EnterAmount["Enter Payment Amount"]
+    EnterAmount --> ValidateAmount{Valid<br/>Amount?}
+    ValidateAmount -->|No - Exceeds Balance| ErrorMsg["Show Error:<br/>Cannot exceed balance"]
+    ErrorMsg --> EnterAmount
+    ValidateAmount -->|Yes| SelectMethod["Select Payment Method:<br/>- Cash<br/>- Check<br/>- Bank Transfer<br/>- Online"]
+    SelectMethod --> EnterRef["Enter Reference Number<br/>Check #, Transaction ID, etc."]
+    EnterRef --> OptionalRemarks["Optional: Add Remarks"]
+    OptionalRemarks --> CalcBalance["Calculate New Balance:<br/>Balance = Total - Paid"]
+    CalcBalance --> CheckBalance{Balance<br/>= 0?}
+    CheckBalance -->|Yes| MarkPaid["Mark Payment Status:<br/>PAID"]
+    CheckBalance -->|No| MarkPartial["Mark Payment Status:<br/>PARTIAL"]
+    MarkPaid --> UpdateDB["Update Payment Record<br/>in Database"]
+    MarkPartial --> UpdateDB
+    UpdateDB --> GenReceipt["Generate Receipt"]
+    GenReceipt --> ReceiptDetails["Receipt Shows:<br/>- Payment Amount<br/>- Reference #<br/>- Payment Method<br/>- New Balance"]
+    ReceiptDetails --> SaveReceipt["Save Receipt<br/>for Tenant"]
+    SaveReceipt --> End([Payment Recorded &<br/>Receipt Generated])
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style EnterAmount fill:#2196F3,stroke:#1565C0,color:#fff
+    style MarkPaid fill:#FF9800,stroke:#E65100,color:#fff
+    style MarkPartial fill:#FF9800,stroke:#E65100,color:#fff
+    style GenReceipt fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style End fill:#4CAF50,stroke:#2E7D32,color:#fff
+                </div>
+                <div class="legend">
+                    <strong>Key Points:</strong> Amount validation, Multiple payment methods,
+                    Automatic balance calculation, Receipt generation, Paid/Partial status tracking
+                </div>
+            </div>
+
+            <!-- Diagram 4: Overdue & Demand Letter -->
+            <div class="diagram-card">
+                <h2 class="diagram-title">4️⃣ Overdue Payment & Demand Letter Generation</h2>
+                <p class="diagram-description">
+                    Automated scheduled task runs to identify overdue payments, calculates accumulated interest
+                    based on days overdue and contract interest rate, generates demand letters for tenants,
+                    and sends notifications to admin/staff/cashier users.
+                </p>
+                <div class="mermaid">
+graph TD
+    Start([Scheduled Task:<br/>Check Overdue Payments]) --> Query["Query All Payments:<br/>Due Date < Today<br/>AND Balance > 0"]
+    Query --> LoopStart{Any Overdue<br/>Payments?}
+    LoopStart -->|No| End1([Task Complete:<br/>No Overdue Found])
+    LoopStart -->|Yes| LoopPayment["For Each Overdue Payment:"]
+    LoopPayment --> CalcDays["Calculate Days Overdue:<br/>Days = Today - Due Date"]
+    CalcDays --> ConvertMonths["Convert to Months:<br/>Months = Days / 30"]
+    ConvertMonths --> GetInterestRate["Get Contract Interest Rate<br/>from Database"]
+    GetInterestRate --> CalcInterest["Calculate Interest:<br/>Interest = Amount Due ×<br/>Interest Rate × Months"]
+    CalcInterest --> UpdateInterest["Update Payment:<br/>- Interest Amount<br/>- Total Amount<br/>- Balance<br/>- Status = OVERDUE"]
+    UpdateInterest --> SavePayment["Save Updated Payment<br/>to Database"]
+    SavePayment --> CheckDemand{Demand Letter<br/>Already Created?}
+    CheckDemand -->|Yes| CheckMore["More payments?"]
+    CheckDemand -->|No| GenDemand["Generate Demand Letter<br/>for Tenant"]
+    GenDemand --> DemandData["Demand Letter Contains:<br/>- Tenant Name<br/>- Contract #<br/>- Original Amount<br/>- Interest Charged<br/>- Total Payable<br/>- Days Overdue<br/>- Payment Instructions"]
+    DemandData --> SaveDemand["Save Demand Letter<br/>to Database"]
+    SaveDemand --> CreateNotif["Create Notification<br/>for Admin/Staff"]
+    CreateNotif --> NotifMsg["Notification:<br/>Demand Letter Generated<br/>for [Tenant Name]"]
+    NotifMsg --> CheckMore
+    CheckMore -->|Yes| LoopPayment
+    CheckMore -->|No| End2([Task Complete:<br/>All Overdue Processed])
+    style Start fill:#F44336,stroke:#C62828,color:#fff
+    style CalcInterest fill:#FF9800,stroke:#E65100,color:#fff
+    style GenDemand fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style CreateNotif fill:#2196F3,stroke:#1565C0,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+                </div>
+                <div class="legend">
+                    <strong>Key Points:</strong> Automated scheduled task, Interest calculation based on days overdue,
+                    Demand letter generation, Admin notifications, Prevents duplicate letters
+                </div>
+            </div>
+
+            <!-- Diagram 5: Contract Renewal -->
+            <div class="diagram-card">
+                <h2 class="diagram-title">5️⃣ Contract Renewal Notification</h2>
+                <p class="diagram-description">
+                    Automated scheduled task checks active contracts and identifies those within 2 months
+                    of expiration. Creates renewal notifications for admin/staff/cashier and marks contracts
+                    as "FOR_RENEWAL" status. Prevents duplicate notifications within 7 days.
+                </p>
+                <div class="mermaid">
+graph TD
+    Start([Scheduled Task:<br/>Check Contract Renewal]) --> Query["Query All Contracts:<br/>Status = ACTIVE"]
+    Query --> Loop{For Each<br/>Contract}
+    Loop -->|No More| End1([Task Complete])
+    Loop -->|Yes| CalcExpiry["Calculate Days Until Expiry:<br/>Days = End Date - Today"]
+    CalcExpiry --> Check2Months{Days Until<br/>Expiry ≤ 60?}
+    Check2Months -->|No| CheckNext["Check Next Contract"]
+    Check2Months -->|Yes| CheckNotif{Renewal Notification<br/>Sent in Last<br/>7 Days?}
+    CheckNotif -->|Yes| CheckNext
+    CheckNotif -->|No| UpdateStatus["Update Contract Status:<br/>Status = FOR_RENEWAL"]
+    UpdateStatus --> LoadRels["Load Contract Relations:<br/>- Tenant<br/>- Rental Space"]
+    LoadRels --> CreateNotif["Create Renewal Notification"]
+    CreateNotif --> NotifContent["Notification For:<br/>All Admin/Staff/Cashier<br/><br/>Message:<br/>'Contract #XXX for<br/>[Space Name]<br/>expires in Y days<br/>Contact tenant for renewal'"]
+    NotifContent --> UpdateTimestamp["Update:<br/>last_notification_sent<br/>= Today"]
+    UpdateTimestamp --> SaveNotif["Save Notification<br/>to Database"]
+    SaveNotif --> CheckNext
+    CheckNext -->|More Contracts| Loop
+    CheckNext -->|Done| End2([All Contracts Checked<br/>Notifications Sent])
+    style Start fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style Check2Months fill:#FF9800,stroke:#E65100,color:#fff
+    style UpdateStatus fill:#2196F3,stroke:#1565C0,color:#fff
+    style CreateNotif fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    style NotifContent fill:#00BCD4,stroke:#00838F,color:#fff
+    style End1 fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style End2 fill:#4CAF50,stroke:#2E7D32,color:#fff
+                </div>
+                <div class="legend">
+                    <strong>Key Points:</strong> Checks contracts 2 months before expiry, Prevents duplicate notifications,
+                    Updates contract status to FOR_RENEWAL, Notifies all admin/staff/cashier users
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>📊 PFDA Contract Monitoring System | Comprehensive Activity Diagrams</p>
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+        mermaid.contentLoaded();
+    </script>
+</body>
+</html>

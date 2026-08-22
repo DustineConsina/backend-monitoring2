@@ -345,12 +345,12 @@ class ReportController extends Controller
         })->toArray();
 
         $summary = [
-            'total_contracts' => $contracts->count(),
-            'active_contracts' => $contracts->where('status', 'active')->count(),
-            'expired_contracts' => $contracts->where('status', 'expired')->count(),
-            'terminated_contracts' => $contracts->where('status', 'terminated')->count(),
-            'pending_contracts' => $contracts->where('status', 'pending')->count(),
-            'total_monthly_revenue' => $contracts->where('status', 'active')->sum('monthly_rental'),
+            'total contracts' => $contracts->count(),
+            'active contracts' => $contracts->where('status', 'active')->count(),
+            'expired contracts' => $contracts->where('status', 'expired')->count(),
+            'terminated contracts' => $contracts->where('status', 'terminated')->count(),
+            'pending contracts' => $contracts->where('status', 'pending')->count(),
+            'total monthly revenue' => $contracts->where('status', 'active')->sum('monthly_rental'),
         ];
 
         if ($request->has('format') && $request->format === 'pdf') {
@@ -419,14 +419,14 @@ class ReportController extends Controller
         $payments = $query->orderBy('payment_date', 'desc')->get();
 
         $summary = [
-            'total_payments' => $payments->count(),
-            'paid_payments' => $payments->where('status', 'paid')->count(),
-            'pending_payments' => $payments->where('status', 'pending')->count(),
-            'overdue_payments' => $payments->where('status', 'overdue')->count(),
-            'partial_payments' => $payments->where('status', 'partial')->count(),
-            'total_collected' => $payments->where('status', 'paid')->sum('amount_paid'),
-            'total_pending' => $payments->whereIn('status', ['pending', 'overdue', 'partial'])->sum('balance'),
-            'total_interest_charged' => $payments->sum('interest_amount'),
+            'total payments' => $payments->count(),
+            'paid payments' => $payments->where('status', 'paid')->count(),
+            'pending payments' => $payments->where('status', 'pending')->count(),
+            'overdue payments' => $payments->where('status', 'overdue')->count(),
+            'partial payments' => $payments->where('status', 'partial')->count(),
+            'total collected' => $payments->where('status', 'paid')->sum('amount_paid'),
+            'total pending' => $payments->whereIn('status', ['pending', 'overdue', 'partial'])->sum('balance'),
+            'total interest charged' => $payments->sum('interest_amount'),
         ];
 
         // Convert to arrays for PDF with proper nested structure

@@ -12,13 +12,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Add 'for_renewal' status to contracts table
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('contracts', function (Blueprint $table) {
             // For MySQL, we need to drop and recreate the enum with the new value
             // This is a workaround as Laravel doesn't support enum modification
         });
 
-        // Using raw SQL to modify the enum
         DB::statement("ALTER TABLE contracts MODIFY status ENUM('active', 'expired', 'terminated', 'pending', 'for_renewal') DEFAULT 'pending'");
     }
 
@@ -27,7 +29,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Revert enum to original values
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         DB::statement("ALTER TABLE contracts MODIFY status ENUM('active', 'expired', 'terminated', 'pending') DEFAULT 'pending'");
     }
 };

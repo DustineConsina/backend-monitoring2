@@ -17,6 +17,8 @@ class DashboardController extends Controller
      */
     public function index(Request $request)
     {
+        Contract::updateStatuses();
+
         $user = $request->user();
 
         if ($user->isTenant()) {
@@ -31,14 +33,14 @@ class DashboardController extends Controller
      */
     private function adminDashboard()
     {
-        // Count spaces without active contracts (true available)
+        // Count spaces without active or for_renewal contracts (true available)
         $availableSpacesCount = RentalSpace::whereDoesntHave('contracts', function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal']);
         })->count();
         
-        // Count spaces with active contracts (truly occupied)
+        // Count spaces with active or for_renewal contracts (truly occupied)
         $occupiedSpacesCount = RentalSpace::whereHas('contracts', function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal']);
         })->count();
         
         $stats = [
@@ -47,7 +49,8 @@ class DashboardController extends Controller
             'available_spaces' => $availableSpacesCount,
             'occupied_spaces' => $occupiedSpacesCount,
             'active_contracts' => Contract::where('status', 'active')->count(),
-            'expiring_contracts' => Contract::where('status', 'active')
+            'renewal_contracts' => Contract::where('status', 'for_renewal')->count(),
+            'expiring_contracts' => Contract::whereIn('status', ['active', 'for_renewal'])
                 ->where('end_date', '<=', Carbon::now()->addDays(30))
                 ->count(),
             'expired_contracts' => Contract::where('status', 'expired')->count(),
@@ -70,7 +73,7 @@ class DashboardController extends Controller
 
         // Upcoming expirations
         $upcomingExpirations = Contract::with(['tenant.user', 'rentalSpace'])
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'for_renewal'])
             ->where('end_date', '<=', Carbon::now()->addDays(30))
             ->orderBy('end_date')
             ->get();
@@ -100,24 +103,24 @@ class DashboardController extends Controller
             ];
         }
 
-        // Space utilization (based on actual active contracts, not status field)
+        // Space utilization (based on actual active/for_renewal contracts, not status field)
         $spaceUtilization = [
             'food_stall' => [
                 'total' => RentalSpace::where('space_type', 'food_stall')->count(),
                 'occupied' => RentalSpace::where('space_type', 'food_stall')->whereHas('contracts', function ($q) {
-                    $q->where('status', 'active');
+                    $q->whereIn('status', ['active', 'for_renewal']);
                 })->count(),
             ],
             'market_hall' => [
                 'total' => RentalSpace::where('space_type', 'market_hall')->count(),
                 'occupied' => RentalSpace::where('space_type', 'market_hall')->whereHas('contracts', function ($q) {
-                    $q->where('status', 'active');
+                    $q->whereIn('status', ['active', 'for_renewal']);
                 })->count(),
             ],
             'banera_warehouse' => [
                 'total' => RentalSpace::where('space_type', 'banera_warehouse')->count(),
                 'occupied' => RentalSpace::where('space_type', 'banera_warehouse')->whereHas('contracts', function ($q) {
-                    $q->where('status', 'active');
+                    $q->whereIn('status', ['active', 'for_renewal']);
                 })->count(),
             ],
         ];

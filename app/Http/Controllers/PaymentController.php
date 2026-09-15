@@ -7,8 +7,11 @@ use App\Models\Contract;
 use App\Models\DemandLetter;
 use App\Models\AuditLog;
 use App\Models\Notification;
+use App\Models\User;
+use App\Models\PaymentTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class PaymentController extends Controller
@@ -18,7 +21,7 @@ class PaymentController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Payment::with(['tenant.user', 'contract.rentalSpace']);
+        $query = Payment::with(['tenant.user', 'contract.rentalSpace', 'transactions.recorder']);
 
         // Search
         if ($request->has('search')) {
@@ -83,7 +86,13 @@ class PaymentController extends Controller
             'contract' => function($query) {
                 $query->with('rentalSpace');
             },
-            'demandLetters'
+            'demandLetters' => function ($query) {
+                $query->whereIn('status', ['issued', 'sent'])
+                    ->whereHas('payment', function ($paymentQuery) {
+                        $paymentQuery->where('status', '!=', 'paid');
+                    });
+            },
+            'transactions.recorder'
         ])->findOrFail($id);
 
         // Ensure financial fields are present and properly typed
@@ -197,6 +206,10 @@ class PaymentController extends Controller
             'due_date' => 'required|date',
             'billing_period_start' => 'sometimes|date',
             'billing_period_end' => 'sometimes|date',
+            'payment_date' => 'nullable|date',
+            'payment_method' => 'nullable|in:cash,bank_transfer,e_wallet',
+            'payment_provider' => 'nullable|string|max:100',
+            'reference_number' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -204,6 +217,21 @@ class PaymentController extends Controller
                 'success' => false,
                 'errors' => $validator->errors()
             ], 422);
+        }
+
+        $hasPaymentDate = !empty($data['payment_date']);
+        if ($hasPaymentDate && empty($data['payment_method'])) {
+            return response()->json(['success' => false, 'message' => 'Payment method is required when a paid date is provided.'], 422);
+        }
+        if (!$hasPaymentDate && !empty($data['payment_method'])) {
+            $data['payment_method'] = null;
+        }
+        if ($hasPaymentDate && $data['payment_method'] !== 'cash' && empty($data['payment_provider'])) {
+            return response()->json(['success' => false, 'message' => 'Payment provider is required for non-cash payments.'], 422);
+        }
+        if ($hasPaymentDate && $data['payment_method'] !== 'cash' && empty($data['reference_number'])) {
+            $label = $data['payment_method'] === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer';
+            return response()->json(['success' => false, 'message' => "Reference number is required for {$label} payments."], 422);
         }
 
         // Create payment record with 3% interest on monthly rent
@@ -230,6 +258,7 @@ class PaymentController extends Controller
         $isPaid = isset($data['payment_date']) && $data['payment_date'] !== null;
         $amountPaid = $isPaid ? $totalWithInterest : 0;
         $remainingBalance = $totalWithInterest - $amountPaid;
+        $isOverdue = !$isPaid && Carbon::parse($data['due_date'])->isPast();
 
         // Default missing billing dates to the contract anniversary cycle.
         $billingContract = Contract::find($data['contract_id']);
@@ -253,17 +282,41 @@ class PaymentController extends Controller
             'amount_paid' => $amountPaid,
             'balance' => $remainingBalance,
             'payment_method' => $data['payment_method'] ?? null,
+            'payment_provider' => ($data['payment_method'] ?? null) === 'cash' ? null : ($data['payment_provider'] ?? null),
+            'reference_number' => ($data['payment_method'] ?? null) === 'cash' ? null : ($data['reference_number'] ?? null),
             'remarks' => $data['remarks'] ?? null,
             'payment_date' => $data['payment_date'] ?? null,
-            'status' => $isPaid ? 'paid' : 'pending',
+            'status' => $isPaid ? 'paid' : ($isOverdue ? 'overdue' : 'pending'),
         ]);
+
+        if ($isPaid) {
+            PaymentTransaction::create([
+                'payment_id' => $payment->id,
+                'amount' => $totalWithInterest,
+                'paid_date' => $data['payment_date'],
+                'payment_method' => $data['payment_method'],
+                'payment_provider' => $data['payment_method'] === 'cash' ? null : ($data['payment_provider'] ?? null),
+                'reference_number' => $data['payment_method'] === 'cash' ? null : ($data['reference_number'] ?? null),
+                'recorded_by' => auth()->id(),
+                'remarks' => $data['remarks'] ?? null,
+            ]);
+        }
+
+        if ($isOverdue) {
+            $this->ensureDemandLetter($payment);
+            $this->notifyPaymentEvent($payment, 'payment_overdue');
+        } elseif ($isPaid) {
+            $this->notifyPaymentEvent($payment, 'payment_paid');
+        } else {
+            $this->notifyPaymentEvent($payment, 'payment_due');
+        }
 
         AuditLog::log('create', 'Payment', $payment->id, "Created payment: {$payment->payment_number}");
 
         return response()->json([
             'success' => true,
             'message' => 'Payment created successfully',
-            'data' => $payment->fresh(['tenant.user', 'contract.rentalSpace'])
+            'data' => $payment->fresh(['tenant.user', 'contract.rentalSpace', 'transactions.recorder'])
         ], 201);
     }
 
@@ -273,6 +326,13 @@ class PaymentController extends Controller
     public function update(Request $request, $id)
     {
         $payment = Payment::findOrFail($id);
+
+        if ($request->has('amount_paid') || $request->has('amount_to_pay') || $request->has('amount')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment amounts must be recorded through the payment transaction endpoint.',
+            ], 422);
+        }
         
         // Map camelCase to snake_case
         $data = $request->all();
@@ -388,6 +448,18 @@ class PaymentController extends Controller
 
         $payment->save();
 
+        $currentStatus = $payment->status;
+        $oldStatus = $oldValues['status'] ?? null;
+        
+        if ($payment->isOverdue()) {
+            $this->ensureDemandLetter($payment);
+            $this->notifyPaymentEvent($payment, 'payment_overdue');
+        } elseif ($currentStatus === 'paid' && $oldStatus !== 'paid') {
+            $this->notifyPaymentEvent($payment, 'payment_paid');
+        } elseif ($currentStatus === 'pending' && $oldStatus !== 'pending') {
+            $this->notifyPaymentEvent($payment, 'payment_due');
+        }
+
         AuditLog::log('update', 'Payment', $payment->id, "Updated payment: {$payment->payment_number}", $oldValues, $payment->toArray());
 
         return response()->json([
@@ -403,8 +475,10 @@ class PaymentController extends Controller
     public function recordPayment(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'amount' => 'required|numeric|min:0',
-            'payment_method' => 'required|in:cash,check,bank_transfer',
+            'amount' => 'required|numeric|min:0.01',
+            'paid_date' => 'required|date',
+            'payment_method' => 'required|in:cash,bank_transfer,e_wallet',
+            'payment_provider' => 'nullable|string|max:100',
             'reference_number' => 'nullable|string|max:255',
             'remarks' => 'nullable|string',
         ]);
@@ -416,55 +490,66 @@ class PaymentController extends Controller
             ], 422);
         }
 
-        $payment = Payment::findOrFail($id);
+        if ($request->payment_method !== 'cash' && !$request->payment_provider) {
+            return response()->json(['success' => false, 'message' => 'Payment provider is required for non-cash payments.'], 422);
+        }
+        if ($request->payment_method !== 'cash' && !$request->reference_number) {
+            $label = $request->payment_method === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer';
+            return response()->json(['success' => false, 'message' => "Reference number is required for {$label} payments."], 422);
+        }
+
+        [$payment, $transaction, $oldValues] = DB::transaction(function () use ($request, $id) {
+            $payment = Payment::whereKey($id)->lockForUpdate()->firstOrFail();
+            $oldValues = $payment->toArray();
+            $payment->balance = max(0, (float) $payment->total_amount - (float) $payment->amount_paid);
+
+            if ((float) $request->amount > (float) $payment->balance) {
+                abort(response()->json(['success' => false, 'message' => 'Payment amount exceeds the remaining balance.'], 422));
+            }
+
+            $transaction = PaymentTransaction::create([
+                'payment_id' => $payment->id,
+                'amount' => $request->amount,
+                'paid_date' => $request->paid_date,
+                'payment_method' => $request->payment_method,
+                'payment_provider' => $request->payment_provider,
+                'reference_number' => $request->reference_number,
+                'recorded_by' => auth()->id(),
+                'remarks' => $request->remarks,
+            ]);
+
+            $payment->amount_paid = PaymentTransaction::where('payment_id', $payment->id)->sum('amount');
+            $payment->balance = max(0, (float) $payment->total_amount - (float) $payment->amount_paid);
+            $payment->payment_date = $request->paid_date;
+            $payment->payment_method = $request->payment_method;
+            $payment->payment_provider = $request->payment_method === 'cash' ? null : $request->payment_provider;
+            $payment->reference_number = $request->payment_method === 'cash' ? null : $request->reference_number;
+            $payment->remarks = $request->remarks;
+            $payment->status = $payment->amount_paid >= $payment->total_amount
+                ? 'paid'
+                : ($payment->amount_paid > 0 ? 'partial' : ($payment->isOverdue() ? 'overdue' : 'pending'));
+            $payment->save();
+
+            return [$payment, $transaction, $oldValues];
+        });
 
         if ($payment->status === 'paid') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Payment already marked as paid'
-            ], 422);
+            $this->removeActiveDemandLetters($payment);
+            $this->notifyPaymentEvent($payment, 'payment_paid', $request->amount);
+        } elseif ($payment->isOverdue() && $payment->balance > 0) {
+            $this->ensureDemandLetter($payment);
+            $this->notifyPaymentEvent($payment, 'payment_received', $request->amount);
+        } else {
+            $this->notifyPaymentEvent($payment, 'payment_received', $request->amount);
         }
 
-        $oldValues = $payment->toArray();
-
-        // Calculate interest if overdue
-        if ($payment->isOverdue()) {
-            $payment->calculateInterest();
-        }
-
-        if ($request->amount > $payment->balance) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Payment amount exceeds balance'
-            ], 422);
-        }
-
-        // Generate reference number if not provided
-        $referenceNumber = $request->reference_number ?: $this->generateReferenceNumber($request->payment_method);
-
-        // Record the payment
-        $payment->recordPayment(
-            $request->amount,
-            $request->payment_method,
-            $referenceNumber,
-            $request->remarks
-        );
-
-        // Create notification
-        Notification::create([
-            'user_id' => $payment->tenant->user_id,
-            'type' => 'payment_received',
-            'title' => 'Payment Received',
-            'message' => "Payment of ₱" . number_format($request->amount, 2) . " received for {$payment->payment_number}",
-            'data' => ['payment_id' => $payment->id],
-        ]);
-
-        AuditLog::log('update', 'Payment', $payment->id, "Recorded payment of ₱{$request->amount} for {$payment->payment_number}", $oldValues, $payment->toArray());
+        AuditLog::log('create', 'PaymentTransaction', $transaction->id, "Recorded payment of ₱{$request->amount} for {$payment->payment_number}", $oldValues, $transaction->toArray());
 
         return response()->json([
             'success' => true,
             'message' => 'Payment recorded successfully',
-            'data' => $payment->fresh(['tenant.user', 'contract.rentalSpace'])
+            'data' => $payment->fresh(['tenant.user', 'contract.rentalSpace', 'transactions.recorder']),
+            'transaction' => $transaction->load('recorder'),
         ]);
     }
 
@@ -489,6 +574,13 @@ class PaymentController extends Controller
         $payment->status = $request->status;
         $payment->save();
 
+        if ($payment->status === 'paid') {
+            $this->removeActiveDemandLetters($payment);
+        } elseif ($payment->isOverdue() && $payment->balance > 0) {
+            $this->ensureDemandLetter($payment);
+            $this->notifyPaymentEvent($payment, 'payment_overdue');
+        }
+
         AuditLog::log('update', 'Payment', $payment->id, "Updated payment status from {$oldStatus} to {$request->status}", ['status' => $oldStatus], ['status' => $request->status]);
 
         return response()->json([
@@ -499,17 +591,52 @@ class PaymentController extends Controller
     }
 
     /**
+     * Delete a payment record from the database.
+     */
+    public function destroy($id)
+    {
+        $payment = Payment::findOrFail($id);
+        $paymentNumber = $payment->payment_number;
+
+        AuditLog::log('delete', 'Payment', $payment->id, "Deleted payment: {$paymentNumber}");
+
+        $payment->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment deleted successfully'
+        ]);
+    }
+
+    /**
      * Calculate overdue payments and apply interest
      */
     public function calculateOverduePayments()
     {
-        $overduePayments = Payment::where('status', 'pending')
-            ->where('due_date', '<', Carbon::now())
+        DemandLetter::whereIn('status', ['issued', 'sent'])
+            ->whereHas('payment', function ($paymentQuery) {
+                $paymentQuery->where('status', 'paid');
+            })
+            ->delete();
+
+        $overduePayments = Payment::where(function ($query) {
+                $query->where('status', 'overdue')
+                    ->orWhere(function ($pendingQuery) {
+                        $pendingQuery->whereIn('status', ['pending', 'partial'])
+                            ->where('due_date', '<', Carbon::now());
+                    });
+            })
             ->get();
 
         $count = 0;
         foreach ($overduePayments as $payment) {
-            $payment->calculateInterest();
+            if (in_array($payment->status, ['pending', 'partial'], true)) {
+                $payment->calculateInterest();
+            }
+            if ($payment->balance > 0) {
+                $this->ensureDemandLetter($payment);
+            }
+            $this->notifyPaymentEvent($payment, 'payment_overdue');
             $count++;
 
             // Create notification if not already sent
@@ -602,6 +729,10 @@ class PaymentController extends Controller
         $sortOrder = $request->get('sort_order', 'desc');
         $query->orderBy($sortBy, $sortOrder);
 
+        $query->whereHas('payment', function ($paymentQuery) {
+            $paymentQuery->where('status', '!=', 'paid');
+        });
+
         $demandLetters = $query->paginate($request->get('per_page', 20))->through(function ($letter) {
             return [
                 'id' => $letter->id,
@@ -648,6 +779,9 @@ class PaymentController extends Controller
         $contract = Contract::findOrFail($contractId);
         
         $demandLetters = $contract->demandLetters()
+            ->whereHas('payment', function ($paymentQuery) {
+                $paymentQuery->where('status', '!=', 'paid');
+            })
             ->with('payment', 'tenant')
             ->orderBy('issued_date', 'desc')
             ->get()
@@ -814,6 +948,116 @@ class PaymentController extends Controller
         };
         
         return "{$prefix}-{$timestamp}-{$random}";
+    }
+
+    private function ensureDemandLetter(Payment $payment): DemandLetter
+    {
+        $existingLetter = DemandLetter::where('payment_id', $payment->id)
+            ->whereIn('status', ['issued', 'sent'])
+            ->first();
+
+        if ($existingLetter) {
+            $existingLetter->update([
+                'outstanding_balance' => max(0, (float) $payment->balance),
+                'total_amount_demanded' => max(0, (float) $payment->balance),
+            ]);
+            return $existingLetter;
+        }
+
+        $year = now()->format('Y');
+        $lastLetter = DemandLetter::where('demand_number', 'like', "DL-{$year}-%")
+            ->orderByDesc('id')
+            ->first();
+        $nextNumber = $lastLetter
+            ? ((int) substr($lastLetter->demand_number, -6)) + 1
+            : 1;
+
+        return DemandLetter::create([
+            'demand_number' => "DL-{$year}-" . str_pad($nextNumber, 6, '0', STR_PAD_LEFT),
+            'contract_id' => $payment->contract_id,
+            'tenant_id' => $payment->tenant_id,
+            'payment_id' => $payment->id,
+            'outstanding_balance' => max(0, (float) $payment->balance),
+            'total_amount_demanded' => max(0, (float) $payment->balance),
+            'issued_date' => now()->toDateString(),
+            'due_date' => now()->addDays(7)->toDateString(),
+            'status' => 'issued',
+            'email_sent_to' => $payment->tenant?->user?->email,
+            'remarks' => 'Automatically generated when payment became overdue.',
+        ]);
+    }
+
+    private function removeActiveDemandLetters(Payment $payment): void
+    {
+        DemandLetter::where('payment_id', $payment->id)
+            ->whereIn('status', ['issued', 'sent'])
+            ->delete();
+    }
+
+    private function notifyPaymentEvent(Payment $payment, string $type, $receivedAmount = null): void
+    {
+        $tenant = $payment->tenant()->with('user')->first();
+        if (!$tenant?->user_id) {
+            return;
+        }
+
+        $amount = number_format((float) ($receivedAmount ?? $payment->total_amount), 2);
+        $details = [
+            'payment_id' => $payment->id,
+            'payment_number' => $payment->payment_number,
+            'amount' => (float) ($receivedAmount ?? $payment->total_amount),
+            'due_date' => optional($payment->due_date)->toDateString(),
+        ];
+
+        $messages = [
+            'payment_due' => [
+                'title' => 'Payment Due',
+                'message' => "Payment {$payment->payment_number} of ₱{$amount} is due on {$payment->due_date->format('M d, Y')}.",
+            ],
+            'payment_overdue' => [
+                'title' => 'Payment Overdue',
+                'message' => "Payment {$payment->payment_number} of ₱{$amount} is overdue.",
+            ],
+            'payment_paid' => [
+                'title' => 'Payment Paid',
+                'message' => "Payment {$payment->payment_number} was paid successfully. Amount received: ₱{$amount}.",
+            ],
+            'payment_received' => [
+                'title' => 'Payment Received',
+                'message' => "A partial payment of ₱{$amount} was received for {$payment->payment_number}.",
+            ],
+        ];
+
+        $event = $messages[$type] ?? null;
+        if (!$event) {
+            return;
+        }
+
+        $recipientIds = User::query()
+            ->where(function ($query) {
+                $query->whereIn('role', ['admin', 'staff', 'cashier'])
+                    ->orWhereIn('role', ['ADMIN', 'STAFF', 'CASHIER']);
+            })
+            ->pluck('id')
+            ->push($tenant->user_id)
+            ->unique();
+
+        foreach ($recipientIds as $recipientId) {
+            $alreadyExists = Notification::where('user_id', $recipientId)
+                ->where('type', $type)
+                ->where('data->payment_id', $payment->id)
+                ->exists();
+
+            if (!$alreadyExists) {
+                Notification::create([
+                    'user_id' => $recipientId,
+                    'type' => $type,
+                    'title' => $event['title'],
+                    'message' => $event['message'],
+                    'data' => $details,
+                ]);
+            }
+        }
     }
 }
 

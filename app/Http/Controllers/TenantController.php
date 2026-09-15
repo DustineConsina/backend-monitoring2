@@ -18,6 +18,36 @@ class TenantController extends Controller
     {
         $this->cloudinary = $cloudinary;
     }
+
+    /**
+     * Resolve a stored profile_picture value to a publicly accessible URL.
+     * Handles both Cloudinary public IDs and local storage paths.
+     */
+    private function resolveProfilePictureUrl(?string $profilePicture): ?string
+    {
+        if (!$profilePicture) {
+            return null;
+        }
+
+        // Local storage path (saved when Cloudinary is not configured)
+        if (str_starts_with($profilePicture, 'profile-pictures/local/')) {
+            $appUrl = rtrim(env('APP_URL', 'http://localhost:8000'), '/');
+            return $appUrl . '/api/storage/' . $profilePicture;
+        }
+
+        // Cloudinary public ID
+        try {
+            return $this->cloudinary->generateUrl($profilePicture);
+        } catch (\Exception $e) {
+            \Log::warning('Failed to generate Cloudinary URL', [
+                'public_id' => $profilePicture,
+                'error'     => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+
     /**
      * Display a listing of tenants
      */
@@ -55,31 +85,14 @@ class TenantController extends Controller
         // Transform items with profile picture URLs
         $items = $tenants->getCollection()->map(function ($tenant) {
             $tenantArray = $tenant->toArray();
+            $tenantArray['profile_picture_path'] = $tenant->profile_picture;
             if ($tenant->profile_picture) {
-                try {
-                    // Generate Cloudinary URL from public_id
-                    $url = $this->cloudinary->generateUrl($tenant->profile_picture);
-                    $tenantArray['profile_picture_url'] = $url;
-                    $tenantArray['profilePicture'] = $url;
-                } catch (\Exception $e) {
-                    \Log::warning('Failed to generate Cloudinary URL', [
-                        'tenant_id' => $tenant->id,
-                        'public_id' => $tenant->profile_picture,
-                        'error' => $e->getMessage()
-                    ]);
-                    // Leave URL fields as null if Cloudinary fails
-                    $tenantArray['profile_picture_url'] = null;
-                    $tenantArray['profilePicture'] = null;
-                }
+                $url = $this->resolveProfilePictureUrl($tenant->profile_picture);
+                $tenantArray['profile_picture_url'] = $url;
+                $tenantArray['profilePicture'] = $url;
             }
             return $tenantArray;
         })->all();
-
-        try {
-            AuditLog::log('view', 'Tenant', null, 'Viewed tenant list');
-        } catch (\Exception $e) {
-            \Log::warning('Failed to log audit', ['error' => $e->getMessage()]);
-        }
 
         return response()->json([
             'success' => true,
@@ -126,6 +139,9 @@ class TenantController extends Controller
         if (isset($data['contactNumber']) && !isset($data['contact_number'])) {
             $data['contact_number'] = $data['contactNumber'];
         }
+        if (isset($data['tin']) && !isset($data['business_permit_number'])) {
+            $data['business_permit_number'] = $data['tin'];
+        }
 
         // Map contactNumber to phone for user table
         if (isset($data['contactNumber']) && !isset($data['phone'])) {
@@ -147,6 +163,15 @@ class TenantController extends Controller
             $data['business_name'] = $data['contact_person'] ?? $data['name'] ?? '';
         }
 
+        // A failed tenant insert can leave its user row behind. Allow that
+        // tenant email to be retried without weakening uniqueness for real users.
+        if (!empty($data['email'])) {
+            $existingUser = User::where('email', $data['email'])->first();
+            if ($existingUser && $existingUser->role === 'tenant' && !$existingUser->tenant()->exists()) {
+                $existingUser->delete();
+            }
+        }
+
         \Log::info('Mapped tenant data', [
             'received_data' => $data,
             'firstName' => $firstName,
@@ -160,12 +185,11 @@ class TenantController extends Controller
         $validator = Validator::make($data, [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:8',
-            'phone' => 'nullable|string|max:11',
+            'password' => 'nullable|string|min:6',
             'address' => 'nullable|string',
             'business_name' => 'required|string|max:255',
             'business_type' => 'nullable|string|max:255',
-            'tin' => 'nullable|string|max:50',
+            'business_permit_number' => 'nullable|string|max:50',
             'business_address' => 'nullable|string',
             'contact_person' => 'required|string|max:255',
             'contact_number' => 'nullable|string|max:11',
@@ -201,37 +225,50 @@ class TenantController extends Controller
             ], 422);
         }
 
-        // Create user account
+        // Create user account with provided or default password
+        $password = !empty($data['password']) ? $data['password'] : 'tenant123';
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
-            'password' => Hash::make($data['password']),
+            'password' => Hash::make($password),
             'role' => 'tenant',
             'phone' => $data['phone'] ?? $data['contact_number'] ?? null,
             'address' => $data['address'] ?? null,
             'status' => 'active',
         ]);
 
+        // Generate a separate 8-digit code used to unlock public QR details.
+        $requestedQrAccessCode = isset($data['qr_access_code']) && preg_match('/^\d{8}$/', (string) $data['qr_access_code'])
+            ? (string) $data['qr_access_code']
+            : null;
+
+        do {
+            $qrAccessCode = $requestedQrAccessCode ?: (string) random_int(10000000, 99999999);
+            $requestedQrAccessCode = null;
+        } while (Tenant::where('qr_access_code', $qrAccessCode)->exists());
+
+        // Generate the next unused tenant code instead of relying on row count.
+        $tenantYear = date('Y');
+        $tenantSequence = Tenant::where('tenant_code', 'like', "TEN-{$tenantYear}-%")->count() + 1;
+        do {
+            $tenantCode = 'TEN-' . $tenantYear . '-' . str_pad($tenantSequence, 4, '0', STR_PAD_LEFT);
+            $tenantSequence++;
+        } while (Tenant::where('tenant_code', $tenantCode)->exists());
+
         // Create tenant profile
         $tenant = Tenant::create([
             'user_id' => $user->id,
-            'tenant_code' => 'TEN-' . date('Y') . '-' . str_pad(Tenant::count() + 1, 4, '0', STR_PAD_LEFT),
+            'tenant_code' => $tenantCode,
+            'qr_password_hash' => Hash::make($qrAccessCode),
+            'qr_access_code' => $qrAccessCode,
             'business_name' => $data['business_name'],
             'business_type' => $data['business_type'] ?? null,
-            'tin' => $data['tin'] ?? null,
+            'business_permit_number' => $data['business_permit_number'] ?? null,
             'business_address' => $data['business_address'] ?? null,
             'contact_person' => $data['contact_person'],
             'contact_number' => $data['contact_number'] ?? $data['phone'] ?? $data['contact_person'] ?? $data['name'] ?? '0000000000',
             'status' => 'active',
         ]);
-
-        // Generate QR Code (with error handling for missing imagick extension)
-        try {
-            $this->generateQRCode($tenant);
-        } catch (\Exception $e) {
-            // Log the error but don't fail tenant creation if QR code generation fails
-            \Log::warning("QR Code generation failed for tenant {$tenant->id}: " . $e->getMessage());
-        }
 
         try {
             AuditLog::log('create', 'Tenant', $tenant->id, "Created tenant: {$tenant->business_name}", null, $tenant->toArray());
@@ -239,10 +276,13 @@ class TenantController extends Controller
             \Log::warning('Failed to log audit', ['error' => $e->getMessage()]);
         }
 
+        $tenantData = $tenant->load('user')->toArray();
+        $tenantData['qr_access_code'] = $qrAccessCode;
+
         return response()->json([
             'success' => true,
             'message' => 'Tenant created successfully',
-            'data' => $tenant->load('user')
+            'data' => $tenantData
         ], 201);
     }
 
@@ -270,29 +310,15 @@ class TenantController extends Controller
             ], 404);
         }
 
-        try {
-            AuditLog::log('view', 'Tenant', $tenant->id, "Viewed tenant: {$tenant->business_name}");
-        } catch (\Exception $e) {
-            \Log::warning('Failed to log audit', ['error' => $e->getMessage()]);
-        }
-
         // Add full URLs for profile picture if it exists
         $tenantArray = $tenant->toArray();
+        $tenantArray['profile_picture_path'] = $tenant->profile_picture;
+        $tenantArray['qr_access_code'] = $tenant->qr_access_code;
         if ($tenant->profile_picture) {
-            try {
-                // Generate Cloudinary URL from public_id
-                $url = $this->cloudinary->generateUrl($tenant->profile_picture);
-                $tenantArray['profile_picture_url'] = $url;
-                $tenantArray['profilePicture_url'] = $url;
-            } catch (\Exception $e) {
-                \Log::warning('Failed to generate Cloudinary URL for tenant detail', [
-                    'tenant_id' => $tenant->id,
-                    'public_id' => $tenant->profile_picture,
-                    'error' => $e->getMessage()
-                ]);
-                $tenantArray['profile_picture_url'] = null;
-                $tenantArray['profilePicture_url'] = null;
-            }
+            $url = $this->resolveProfilePictureUrl($tenant->profile_picture);
+            $tenantArray['profile_picture_url'] = $url;
+            $tenantArray['profilePicture_url']  = $url;
+            $tenantArray['profilePicture']       = $url;
         }
 
         return response()->json([
@@ -374,12 +400,15 @@ class TenantController extends Controller
             $data['contact_person'] = $data['contactPerson'];
             unset($data['contactPerson']);
         }
+        if (isset($data['tin']) && !isset($data['business_permit_number'])) {
+            $data['business_permit_number'] = $data['tin'];
+        }
 
         // Validate tenant data
         $validator = Validator::make($data, [
             'business_name' => 'sometimes|string|max:255',
             'business_type' => 'sometimes|string|max:255',
-            'tin' => 'sometimes|string|max:50',
+            'business_permit_number' => 'sometimes|string|max:50',
             'business_address' => 'sometimes|string',
             'contact_person' => 'sometimes|string|max:255',
             'contact_number' => 'sometimes|string|max:20',
@@ -527,12 +556,113 @@ class TenantController extends Controller
     }
 
     /**
+     * Public endpoint — returns tenant info + contracts for QR scan views.
+     * No authentication required so any device can view after scanning.
+     */
+    public function publicTenantInfo(Request $request, $id)
+    {
+        $authUser = auth('sanctum')->user();
+        $isStaffBypass = $authUser && in_array(strtoupper((string) $authUser->role), ['ADMIN', 'STAFF'], true);
+
+        // Support both field names used by different frontend versions.
+        if (!$request->filled('access_code') && $request->filled('qr_access_code')) {
+            $request->merge(['access_code' => $request->input('qr_access_code')]);
+        }
+
+        if (!$isStaffBypass) {
+            $validator = Validator::make($request->all(), [
+                'access_code' => ['required', 'digits:8'],
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Enter the 8-digit tenant QR password.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+        }
+
+        $tenant = Tenant::with(['user', 'contracts.rentalSpace', 'contracts.payments'])->find($id);
+
+        if (!$tenant) {
+            return response()->json(['success' => false, 'message' => 'Tenant not found'], 404);
+        }
+
+        if (!$isStaffBypass && (!$tenant->qr_password_hash || !Hash::check($request->access_code, $tenant->qr_password_hash))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid tenant QR password.',
+            ], 403);
+        }
+
+        $profilePictureUrl = $this->resolveProfilePictureUrl($tenant->profile_picture);
+
+        $contracts = $tenant->contracts->map(function ($contract) {
+            $space = $contract->rentalSpace;
+            return [
+                'id'              => $contract->id,
+                'contract_number' => $contract->contract_number,
+                'status'          => $contract->status,
+                'start_date'      => $contract->start_date,
+                'end_date'        => $contract->end_date,
+                'monthly_rental'  => $contract->monthly_rental,
+                'rental_space'    => $space ? [
+                    'id'          => $space->id,
+                    'unit_number' => $space->unit_number,
+                    'name'        => $space->name,
+                    'type'        => $space->type,
+                    'floor'       => $space->floor,
+                ] : null,
+                'payments'       => $contract->payments->map(function ($payment) {
+                    return [
+                        'id'                   => $payment->id,
+                        'payment_number'      => $payment->payment_number,
+                        'billing_period_start'=> $payment->billing_period_start,
+                        'billing_period_end'  => $payment->billing_period_end,
+                        'due_date'            => $payment->due_date,
+                        'amount_due'          => $payment->amount_due,
+                        'amount_paid'         => $payment->amount_paid,
+                        'balance'             => $payment->balance,
+                        'status'              => $payment->status,
+                        'payment_date'        => $payment->payment_date,
+                    ];
+                })->values(),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id'               => $tenant->id,
+                'tenant_code'      => $tenant->tenant_code,
+                'business_name'    => $tenant->business_name,
+                'business_type'    => $tenant->business_type,
+                'contact_person'   => $tenant->contact_person,
+                'contact_number'   => $tenant->contact_number,
+                'business_address' => $tenant->business_address,
+                'status'           => $tenant->status,
+                'profile_picture_url' => $profilePictureUrl,
+                'profile_picture_path' => $tenant->profile_picture,
+                'email'            => $tenant->user?->email,
+                'contracts'        => $contracts,
+            ],
+        ]);
+    }
+
+    /**
      * Scan QR code and get tenant details
      */
     public function scanQRCode(Request $request)
     {
+        // Support both field names used by different frontend versions.
+        if (!$request->filled('access_code') && $request->filled('qr_access_code')) {
+            $request->merge(['access_code' => $request->input('qr_access_code')]);
+        }
+
         $validator = Validator::make($request->all(), [
             'tenant_code' => 'required|string',
+            'access_code' => ['required', 'digits:8'],
         ]);
 
         if ($validator->fails()) {
@@ -551,6 +681,13 @@ class TenantController extends Controller
                 'success' => false,
                 'message' => 'Tenant not found'
             ], 404);
+        }
+
+        if (!$tenant->qr_password_hash || !Hash::check($request->access_code, $tenant->qr_password_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid tenant QR password.',
+            ], 403);
         }
 
         return $this->getQRCodeWithDetails($tenant->id);
@@ -584,56 +721,80 @@ class TenantController extends Controller
         }
 
         try {
-            // Delete old picture from Cloudinary if exists
-            if ($tenant->profile_picture) {
-                \Log::info('Attempting to delete old picture from Cloudinary', [
-                    'tenant_id' => $id,
-                    'public_id' => $tenant->profile_picture
-                ]);
-                
-                $deleted = $this->cloudinary->deleteFile($tenant->profile_picture);
-                
-                \Log::info('Old picture deletion result', [
-                    'tenant_id' => $id,
-                    'deleted' => $deleted,
-                    'public_id' => $tenant->profile_picture
-                ]);
-            }
-
-            // Upload new picture to Cloudinary
             $file = $request->file('profile_picture');
-            $public_id = 'tenant-' . $tenant->id . '-' . time();
-            
-            $uploadResult = $this->cloudinary->uploadFile($file, 'profile-pictures', $public_id);
-            
-            if (!$uploadResult['success']) {
-                throw new \Exception('Cloudinary upload failed: ' . $uploadResult['message']);
+
+            // Try Cloudinary first; fall back to local storage if not configured
+            $uploadResult = $this->cloudinary->uploadFile($file, 'profile-pictures', 'tenant-' . $tenant->id . '-' . time());
+
+            if ($uploadResult['success']) {
+                // Cloudinary path: delete old file first
+                if ($tenant->profile_picture && !str_starts_with($tenant->profile_picture, 'profile-pictures/local/')) {
+                    $this->cloudinary->deleteFile($tenant->profile_picture);
+                }
+
+                $storedPath = $uploadResult['public_id'];
+                $pictureUrl  = $uploadResult['url'];
+
+                \Log::info('Profile picture uploaded to Cloudinary successfully', [
+                    'tenant_id' => $id,
+                    'public_id' => $storedPath,
+                    'url'       => $pictureUrl,
+                ]);
+            } else {
+                // Cloudinary not configured — store locally
+                \Log::info('Cloudinary unavailable, falling back to local storage', [
+                    'tenant_id' => $id,
+                    'reason'    => $uploadResult['message'] ?? 'unknown',
+                ]);
+
+                // Delete old local file if it exists
+                if ($tenant->profile_picture && str_starts_with($tenant->profile_picture, 'profile-pictures/local/')) {
+                    $oldFullPath = storage_path('app/public/' . $tenant->profile_picture);
+                    if (file_exists($oldFullPath)) {
+                        unlink($oldFullPath);
+                    }
+                }
+
+                $filename   = 'tenant-' . $tenant->id . '-' . time() . '.' . $file->getClientOriginalExtension();
+                $storedPath = 'profile-pictures/local/' . $filename;
+
+                // Ensure directory exists
+                $dir = storage_path('app/public/profile-pictures/local');
+                if (!is_dir($dir)) {
+                    mkdir($dir, 0755, true);
+                }
+
+                $file->move($dir, $filename);
+
+                // Build a URL the frontend can use via the existing /api/storage/{path} route
+                $appUrl     = rtrim(env('APP_URL', 'http://localhost:8000'), '/');
+                $pictureUrl = $appUrl . '/api/storage/' . $storedPath;
+
+                \Log::info('Profile picture saved to local storage', [
+                    'tenant_id' => $id,
+                    'path'      => $storedPath,
+                    'url'       => $pictureUrl,
+                ]);
             }
 
-            // Update tenant record with Cloudinary public_id
-            $tenant->profile_picture = $uploadResult['public_id'];
+            // Persist the path/public_id in the tenant record
+            $tenant->profile_picture = $storedPath;
             $tenant->save();
-            
-            \Log::info('Profile picture uploaded to Cloudinary successfully', [
-                'tenant_id' => $id,
-                'public_id' => $uploadResult['public_id'],
-                'url' => $uploadResult['url']
-            ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Profile picture uploaded successfully',
                 'data' => [
-                    'profilePicture' => $uploadResult['public_id'],
-                    'profile_picture' => $uploadResult['public_id'],
-                    'url' => $uploadResult['url']
+                    'profilePicture'  => $storedPath,
+                    'profile_picture' => $storedPath,
+                    'url'             => $pictureUrl,
                 ]
             ]);
         } catch (\Exception $e) {
             \Log::error('Profile picture upload failed', [
                 'tenant_id' => $id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error'     => $e->getMessage(),
+                'trace'     => $e->getTraceAsString()
             ]);
 
             return response()->json([

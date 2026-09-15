@@ -24,6 +24,7 @@ class Payment extends Model
         'balance',
         'payment_date',
         'payment_method',
+        'payment_provider',
         'reference_number',
         'remarks',
         'status',
@@ -65,6 +66,11 @@ class Payment extends Model
         return $this->hasMany(DemandLetter::class);
     }
 
+    public function transactions()
+    {
+        return $this->hasMany(PaymentTransaction::class)->latest('paid_date');
+    }
+
     /**
      * Check if payment is overdue.
      */
@@ -102,6 +108,50 @@ class Payment extends Model
             $this->balance = $this->total_amount - $this->amount_paid;
             $this->status = 'overdue';
             $this->save();
+        }
+    }
+
+    public function refreshStatusFromDueDate()
+    {
+        if ($this->amount_paid >= $this->total_amount) {
+            $this->status = 'paid';
+            return $this;
+        }
+
+        if (!$this->due_date) {
+            if ($this->amount_paid > 0) {
+                $this->status = 'partial';
+            } else {
+                $this->status = 'pending';
+            }
+            return $this;
+        }
+
+        $dueDate = Carbon::parse($this->due_date);
+        if (Carbon::now()->isAfter($dueDate) && $this->amount_paid < $this->total_amount) {
+            $this->status = 'overdue';
+            return $this;
+        }
+
+        if ($this->amount_paid > 0) {
+            $this->status = 'partial';
+            return $this;
+        }
+
+        $this->status = 'pending';
+        return $this;
+    }
+
+    public static function syncStatuses()
+    {
+        $payments = self::where(function ($query) {
+            $query->whereNotNull('due_date')
+                ->orWhereNotNull('payment_date');
+        })->get();
+
+        foreach ($payments as $payment) {
+            $payment->refreshStatusFromDueDate();
+            $payment->save();
         }
     }
 

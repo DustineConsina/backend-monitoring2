@@ -18,10 +18,34 @@ use Carbon\Carbon;
 class ContractController extends Controller
 {
     /**
+     * Generate a unique contract number for the current year.
+     */
+    private function generateContractNumber(): string
+    {
+        $year = date('Y');
+        $prefix = "CON-{$year}-";
+
+        $latestContract = Contract::withTrashed()
+            ->where('contract_number', 'like', $prefix . '%')
+            ->orderByRaw("CAST(SUBSTRING(contract_number, LENGTH('{$prefix}') + 1) AS UNSIGNED) DESC")
+            ->first();
+
+        $nextNumber = 1;
+
+        if ($latestContract && preg_match('/CON-\d{4}-(\d{6})$/', $latestContract->contract_number, $matches)) {
+            $nextNumber = (int) $matches[1] + 1;
+        }
+
+        return $prefix . str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Display a listing of contracts
      */
     public function index(Request $request)
     {
+        Contract::updateStatuses();
+
         $query = Contract::with(['tenant.user', 'rentalSpace', 'payments']);
 
         // Search
@@ -59,8 +83,9 @@ class ContractController extends Controller
 
         // Filter expiring soon
         if ($request->has('expiring_soon') && $request->expiring_soon) {
-            $query->where('status', 'active')
-                ->where('end_date', '<=', Carbon::now()->addDays(30));
+            $query->where('status', 'for_renewal')
+                ->where('end_date', '>', Carbon::now())
+                ->where('end_date', '<=', Carbon::now()->addMonths(2));
         }
 
         // Sort
@@ -69,8 +94,6 @@ class ContractController extends Controller
         $query->orderBy($sortBy, $sortOrder);
 
         $contracts = $query->paginate($request->get('per_page', 15));
-
-        AuditLog::log('view', 'Contract', null, 'Viewed contract list');
 
         return response()->json([
             'success' => true,
@@ -185,13 +208,15 @@ class ContractController extends Controller
         $validator = Validator::make($data, [
             'tenant_id' => 'required|exists:tenants,id',
             'rental_space_id' => 'required|exists:rental_spaces,id',
-            'start_date' => 'required|date',
+            'start_date' => 'required|date|after_or_equal:today',
             'duration_months' => 'required|integer|min:1',
             'monthly_rental' => 'required|numeric|min:0',
             'deposit_amount' => 'nullable|numeric|min:0',
             'interest_rate' => 'nullable|numeric|min:0|max:100',
             'terms_conditions' => 'nullable|string',
             'contract_file' => 'nullable|file|mimes:pdf,doc,docx|max:51200',
+        ], [
+            'start_date.after_or_equal' => 'The contract start date cannot be in the past.',
         ]);
 
         if ($validator->fails()) {
@@ -203,9 +228,22 @@ class ContractController extends Controller
 
         \Log::info('Validation passed for contract creation with:', ['data_keys' => array_keys($data)]);
 
-        // Check if rental space is available
+        // Refresh the latest contract and space states before deciding availability.
+        Contract::updateStatuses();
+        RentalSpace::syncOccupancyStatuses();
+
+        // Check if rental space is currently available according to real contract state.
         $rentalSpace = RentalSpace::find($data['rental_space_id']);
-        if (!$rentalSpace || $rentalSpace->status !== 'available') {
+        $hasActiveOrPendingContract = Contract::where('rental_space_id', $data['rental_space_id'])
+            ->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed'])
+            ->exists();
+
+        $status = strtolower((string) ($rentalSpace->status ?? ''));
+        $isAvailable = $rentalSpace && !in_array($status, ['occupied', 'maintenance', 'reserved', 'rented', 'terminated'], true)
+            && $status !== 'unavailable'
+            && !$hasActiveOrPendingContract;
+
+        if (!$isAvailable) {
             return response()->json([
                 'success' => false,
                 'message' => 'Rental space is not available'
@@ -215,7 +253,7 @@ class ContractController extends Controller
         // Check if tenant has existing active contract for the same space
         $existingContract = Contract::where('tenant_id', $data['tenant_id'])
             ->where('rental_space_id', $data['rental_space_id'])
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'for_renewal', 'renewed'])
             ->exists();
 
         if ($existingContract) {
@@ -245,7 +283,7 @@ class ContractController extends Controller
 
         try {
             $contract = Contract::create([
-                'contract_number' => 'CON-' . date('Y') . '-' . str_pad(Contract::withTrashed()->count() + 1, 6, '0', STR_PAD_LEFT),
+                'contract_number' => $this->generateContractNumber(),
                 'tenant_id' => $data['tenant_id'],
                 'rental_space_id' => $data['rental_space_id'],
                 'start_date' => $startDate,
@@ -256,8 +294,11 @@ class ContractController extends Controller
                 'interest_rate' => $data['interest_rate'] ?? 2, // Default 2% monthly interest
                 'terms_conditions' => $data['terms_conditions'] ?? null,
                 'contract_file' => $contractFile,
-                'status' => 'pending',
+                'status' => 'active',
             ]);
+
+            // A newly created contract immediately occupies its rental space.
+            $rentalSpace->update(['status' => 'occupied']);
 
             \Log::info('Contract created successfully:', ['contract_id' => $contract->id, 'contract_number' => $contract->contract_number]);
         } catch (\Exception $e) {
@@ -283,6 +324,8 @@ class ContractController extends Controller
      */
     public function show($id)
     {
+        Contract::updateStatuses();
+
         \Log::info('ContractController@show called with ID: ' . $id);
         
         try {
@@ -339,9 +382,6 @@ class ContractController extends Controller
                 'payments_count' => count($contractArray['payments']),
             ]);
             
-            // Log view action
-            AuditLog::log('view', 'Contract', $contract->id, "Viewed contract: {$contract->contract_number}");
-
             // Return with explicit data structure
             return response()->json([
                 'success' => true,
@@ -389,6 +429,10 @@ class ContractController extends Controller
         } elseif (isset($data['startDate'])) {
             $data['start_date'] = $data['startDate'];
             unset($data['startDate']);
+        }
+
+        if (isset($data['start_date'])) {
+            $data['start_date'] = Carbon::parse($data['start_date'])->format('Y-m-d');
         }
         
         if (isset($data['endDate'])) {
@@ -474,7 +518,7 @@ class ContractController extends Controller
             'deposit_amount' => 'sometimes|numeric|min:0',
             'interest_rate' => 'sometimes|numeric|min:0|max:100',
             'terms_conditions' => 'sometimes|string',
-            'status' => 'sometimes|in:active,expired,terminated,pending',
+            'status' => 'sometimes|in:active,expired,terminated,pending,for_renewal,renewed',
         ]);
 
         if ($validator->fails()) {
@@ -572,21 +616,29 @@ class ContractController extends Controller
             \Log::info("=== ACTIVATE CONTRACT {$id} ===");
             \Log::info("Contract ID: {$contract->id}, Rental Space ID: {$contract->rental_space_id}, Status: {$contract->status}");
 
-            // Allow activation for any contract that isn't already in a terminal state
-            $inactiveStatuses = ['active', 'expired', 'terminated'];
+            // Allow activation only for pending contracts (not active, for_renewal, expired, terminated)
+            $inactiveStatuses = ['active', 'for_renewal', 'expired', 'terminated', 'renewed'];
             if (in_array(strtolower($contract->status), array_map('strtolower', $inactiveStatuses))) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Cannot activate contract with status: {$contract->status}. Contract is already in a terminal state.",
+                    'message' => "Cannot activate contract with status: {$contract->status}.",
                     'current_status' => $contract->status
                 ], 422);
             }
 
             $oldStatus = $contract->status;
-            $contract->status = 'active';
+            
+            // Check if contract is already within 2 months of expiry
+            if ($contract->end_date && $contract->end_date->lte(Carbon::now()->addMonths(2)) && $contract->end_date->gt(Carbon::now())) {
+                $contract->status = 'for_renewal';
+            } elseif ($contract->end_date && $contract->end_date->lte(Carbon::now())) {
+                $contract->status = 'expired';
+            } else {
+                $contract->status = 'active';
+            }
             $contract->save();
 
-            \Log::info("Contract status updated to active");
+            \Log::info("Contract status updated to {$contract->status}");
 
             // Update rental space status to occupied
             if ($contract->rental_space_id) {
@@ -614,14 +666,9 @@ class ContractController extends Controller
                 \Log::error("Contract {$id} has no rental_space_id!");
             }
 
-            // Generate payment schedule
-            try {
-                $contract->generatePaymentSchedule();
-                \Log::info("Payment schedule generated successfully");
-            } catch (\Exception $e) {
-                \Log::error("Error generating payment schedule: " . $e->getMessage());
-                // Continue activation even if payment schedule fails
-            }
+            // Payment schedule generation is intentionally disabled for now.
+            // Contracts are activated without creating payment rows automatically.
+            \Log::info("Contract activated without automatic payment schedule generation");
 
             // Create activation notification for admin/staff/cashier
             $contract->createActivationNotification();
@@ -738,6 +785,20 @@ class ContractController extends Controller
         $contract = Contract::findOrFail($id);
         $contractNumber = $contract->contract_number;
 
+        $contract->payments()->delete();
+
+        if ($contract->rental_space_id) {
+            $hasOtherActiveContract = Contract::withTrashed()
+                ->where('rental_space_id', $contract->rental_space_id)
+                ->where('id', '!=', $contract->id)
+                ->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed'])
+                ->exists();
+
+            if (!$hasOtherActiveContract && $contract->rentalSpace) {
+                $contract->rentalSpace->update(['status' => 'available']);
+            }
+        }
+
         // Delete contract file
         if ($contract->contract_file) {
             Storage::disk('public')->delete($contract->contract_file);
@@ -745,7 +806,8 @@ class ContractController extends Controller
 
         AuditLog::log('delete', 'Contract', $contract->id, "Deleted contract: {$contractNumber}");
 
-        $contract->delete();
+        $contract->forceDelete();
+        RentalSpace::syncOccupancyStatuses();
 
         return response()->json([
             'success' => true,
@@ -772,47 +834,53 @@ class ContractController extends Controller
             ], 422);
         }
 
-        // Create new contract based on old one
+        if (!in_array($oldContract->status, ['active', 'for_renewal'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only active or for-renewal contracts can be renewed.',
+                'current_status' => $oldContract->status,
+            ], 422);
+        }
+
         $startDate = Carbon::now();
         $endDate = $startDate->copy()->addMonths($request->duration_months)->subDay();
 
-        $newContract = Contract::create([
-            'contract_number' => 'CON-' . date('Y') . '-' . str_pad(Contract::withTrashed()->count() + 1, 6, '0', STR_PAD_LEFT),
-            'tenant_id' => $oldContract->tenant_id,
-            'rental_space_id' => $oldContract->rental_space_id,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'duration_months' => $request->duration_months,
-            'monthly_rental' => $request->monthly_rental ?? $oldContract->monthly_rental,
-            'deposit_amount' => 0,
-            'interest_rate' => $oldContract->interest_rate,
-            'terms_conditions' => $oldContract->terms_conditions,
-            'status' => 'active',
-        ]);
-
-        // Update old contract status
-        $oldContract->status = 'expired';
+        $oldContract->start_date = $startDate;
+        $oldContract->end_date = $endDate;
+        $oldContract->duration_months = $request->duration_months;
+        $oldContract->monthly_rental = $request->monthly_rental ?? $oldContract->monthly_rental;
+        $oldContract->status = 'renewed';
         $oldContract->save();
 
-        // Generate payment schedule for new contract
-        $newContract->generatePaymentSchedule();
+        // No automatic payment schedule generation on renewal.
 
-        // Create notification
-        Notification::create([
-            'user_id' => $oldContract->tenant->user_id,
-            'type' => 'contract_renewed',
-            'title' => 'Contract Renewed',
-            'message' => "Your contract has been renewed. New contract number: {$newContract->contract_number}",
-            'data' => ['contract_id' => $newContract->id, 'old_contract_id' => $oldContract->id],
-        ]);
+        // Notify the tenant and dashboard users about the renewal.
+        $recipientIds = User::query()
+            ->where(function ($query) {
+                $query->whereIn('role', ['admin', 'staff', 'cashier'])
+                    ->orWhereIn('role', ['ADMIN', 'STAFF', 'CASHIER']);
+            })
+            ->pluck('id')
+            ->push($oldContract->tenant->user_id)
+            ->unique();
 
-        AuditLog::log('create', 'Contract', $newContract->id, "Renewed contract from {$oldContract->contract_number} to {$newContract->contract_number}");
+        foreach ($recipientIds as $recipientId) {
+            Notification::create([
+                'user_id' => $recipientId,
+                'type' => 'contract_renewed',
+                'title' => 'Contract Renewed',
+                'message' => "Contract {$oldContract->contract_number} was renewed. New renewal period runs until {$oldContract->end_date->format('Y-m-d')}",
+                'data' => ['contract_id' => $oldContract->id],
+            ]);
+        }
+
+        AuditLog::log('update', 'Contract', $oldContract->id, "Renewed contract {$oldContract->contract_number}. Updated period to {$oldContract->start_date->format('Y-m-d')} through {$oldContract->end_date->format('Y-m-d')}");
 
         return response()->json([
             'success' => true,
             'message' => 'Contract renewed successfully',
-            'data' => $newContract->load(['tenant.user', 'rentalSpace'])
-        ], 201);
+            'data' => $oldContract->load(['tenant.user', 'rentalSpace'])
+        ], 200);
     }
 
     /**

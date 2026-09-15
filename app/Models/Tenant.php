@@ -9,18 +9,28 @@ class Tenant extends Model
 {
     use HasFactory;
 
+    protected $hidden = [
+        'qr_password_hash',
+    ];
+
     protected $fillable = [
         'user_id',
         'tenant_code',
+        'qr_password_hash',
+        'qr_access_code',
         'business_name',
         'business_type',
-        'tin',
+        'business_permit_number',
         'business_address',
         'contact_person',
         'contact_number',
         'qr_code',
         'profile_picture',
         'status',
+    ];
+
+    protected $casts = [
+        'qr_access_code' => 'encrypted',
     ];
 
     /**

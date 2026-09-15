@@ -171,7 +171,7 @@ class ReportController extends Controller
                     'Contact Person' => $tenant['contact_person'] ?? '',
                     'Email' => $user['email'] ?? '',
                     'Phone' => $user['phone'] ?? '',
-                    'TIN' => $tenant['tin'] ?? '',
+                    'Business Permit Number' => $tenant['business_permit_number'] ?? '',
                     'Status' => $tenant['status'] ?? '',
                 ];
 
@@ -220,14 +220,33 @@ class ReportController extends Controller
      */
     public function dashboardStats(Request $request)
     {
+        Contract::updateStatuses();
+        Payment::syncStatuses();
+
         // Count spaces without active contracts (true available)
         $availableSpacesCount = RentalSpace::whereDoesntHave('contracts', function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal']);
         })->count();
         
         // Count spaces with active contracts (truly occupied)
         $occupiedSpacesCount = RentalSpace::whereHas('contracts', function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal']);
+        })->count();
+
+        $pendingPaymentsCount = Payment::whereIn('status', ['pending', 'partial'])
+            ->where(function ($query) {
+                $query->where('balance', '>', 0)
+                    ->orWhereNull('balance');
+            })->count();
+
+        $overduePaymentsCount = Payment::where(function ($query) {
+            $query->where('status', 'overdue')
+                ->orWhere(function ($dueQuery) {
+                    $dueQuery->whereIn('status', ['pending', 'partial'])
+                        ->whereNotNull('due_date')
+                        ->where('due_date', '<', Carbon::now())
+                        ->where('balance', '>', 0);
+                });
         })->count();
         
         $stats = [
@@ -238,13 +257,14 @@ class ReportController extends Controller
             'totalContracts' => Contract::count(),
             'activeContracts' => Contract::where('status', 'active')->count(),
             'renewalContracts' => Contract::where('status', 'for_renewal')->count(),
-            'expiringContracts' => Contract::where('status', 'active')
-                ->where('end_date', '<=', Carbon::now()->addDays(30))
+            'expiringContracts' => Contract::where('status', 'for_renewal')
+                ->where('end_date', '>', Carbon::now())
+                ->where('end_date', '<=', Carbon::now()->addMonths(2))
                 ->count(),
             'expiredContracts' => Contract::where('status', 'expired')->count(),
             'terminatedContracts' => Contract::where('status', 'terminated')->count(),
-            'pendingPayments' => Payment::where('status', 'pending')->count(),
-            'overduePayments' => Payment::where('status', 'overdue')->count(),
+            'pendingPayments' => $pendingPaymentsCount,
+            'overduePayments' => $overduePaymentsCount,
             'partialPayments' => Payment::where('status', 'partial')->count(),
             'totalRevenue' => Payment::where('status', 'paid')->sum('amount_paid'),
             'monthlyRevenue' => Payment::where('status', 'paid')
@@ -259,22 +279,23 @@ class ReportController extends Controller
 
         // Recent payments
         $recentPayments = Payment::with(['tenant.user', 'contract.rentalSpace'])
-            ->latest()
+            ->latest('payment_date')
             ->take(5)
             ->get()
             ->map(function($payment) {
                 return [
                     'id' => $payment->id,
                     'paymentFor' => $payment->tenant?->business_name ?? 'Unknown Tenant',
-                    'paymentDate' => $payment->payment_date,
-                    'totalAmount' => round($payment->total_amount, 2),
+                    'paymentDate' => $payment->payment_date ?? $payment->due_date ?? $payment->created_at,
+                    'totalAmount' => round((float) ($payment->total_amount ?? $payment->amount_due ?? 0), 2),
                 ];
             });
 
         // Expiring contracts
         $expiringContracts = Contract::with(['tenant.user', 'rentalSpace'])
-            ->where('status', 'active')
-            ->where('end_date', '<=', Carbon::now()->addDays(30))
+            ->where('status', 'for_renewal')
+            ->where('end_date', '>', Carbon::now())
+            ->where('end_date', '<=', Carbon::now()->addMonths(2))
             ->latest()
             ->take(5)
             ->get();
@@ -302,6 +323,8 @@ class ReportController extends Controller
      */
     public function contractsReport(Request $request)
     {
+        Contract::updateStatuses();
+
         $query = Contract::with(['tenant.user', 'rentalSpace']);
 
         // Filter by status
@@ -499,10 +522,10 @@ class ReportController extends Controller
         })->sortByDesc('total_balance')->values();
 
         $summary = [
-            'total_delinquent_tenants' => $delinquentTenants->count(),
-            'total_overdue_payments' => $overduePayments->count(),
-            'total_outstanding_balance' => $overduePayments->sum('balance'),
-            'total_interest_charges' => $overduePayments->sum('interest_amount'),
+            'total delinquent tenants' => $delinquentTenants->count(),
+            'total overdue payments' => $overduePayments->count(),
+            'total outstanding balance' => $overduePayments->sum('balance'),
+            'total interest charges' => $overduePayments->sum('interest_amount'),
         ];
 
         // Convert tenants to arrays for PDF
@@ -712,11 +735,11 @@ class ReportController extends Controller
         }
 
         if ($request->has('format') && $request->format === 'csv') {
-            $csv = "Business Name,Contact Person,Email,Phone,TIN,Status\n";
+            $csv = "Business Name,Contact Person,Email,Phone,Business Permit Number,Status\n";
             foreach ($tenants as $tenant) {
                 $email = $tenant['tenant']->user ? $tenant['tenant']->user->email : '';
                 $phone = $tenant['tenant']->user ? $tenant['tenant']->user->phone : '';
-                $csv .= "\"" . ($tenant['tenant']->business_name ?? '') . "\",\"" . ($tenant['tenant']->contact_person ?? '') . "\",\"" . $email . "\",\"" . $phone . "\",\"" . ($tenant['tenant']->tin ?? '') . "\",\"" . ($tenant['tenant']->status ?? '') . "\"\n";
+                $csv .= "\"" . ($tenant['tenant']->business_name ?? '') . "\",\"" . ($tenant['tenant']->contact_person ?? '') . "\",\"" . $email . "\",\"" . $phone . "\",\"" . ($tenant['tenant']->business_permit_number ?? '') . "\",\"" . ($tenant['tenant']->status ?? '') . "\"\n";
             }
             return response($csv, 200, [
                 'Content-Type' => 'text/csv; charset=utf-8',
@@ -738,6 +761,8 @@ class ReportController extends Controller
      */
     public function expiringContractsReport(Request $request)
     {
+        Contract::updateStatuses();
+
         $days = $request->get('days', 30); // Default to 30 days
 
         $expiringContracts = Contract::with(['tenant.user', 'rentalSpace'])
@@ -805,7 +830,8 @@ class ReportController extends Controller
      */
     public function auditLogReport(Request $request)
     {
-        $query = AuditLog::with('user');
+        $query = AuditLog::with('user')
+            ->whereRaw('LOWER(action) <> ?', ['view']);
 
         // Filter by user
         if ($request->has('user_id')) {

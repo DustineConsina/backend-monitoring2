@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Payment;
+use App\Models\PaymentTransaction;
 use App\Models\Contract;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CashierController extends Controller
 {
@@ -158,37 +160,63 @@ class CashierController extends Controller
         try {
             $validated = $request->validate([
                 'amount' => 'required|numeric|min:0.01',
-                'payment_method' => 'required|in:cash,check,bank_transfer',
+                'paid_date' => 'required|date',
+                'payment_method' => 'required|in:cash,bank_transfer,e_wallet',
+                'payment_provider' => 'nullable|string|max:100',
                 'reference_number' => 'nullable|string',
                 'remarks' => 'nullable|string',
             ]);
 
-            $payment = Payment::findOrFail($id);
-
-            if ($validated['amount'] > $payment->balance) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Payment amount exceeds balance due'
-                ], 422);
+            if ($validated['payment_method'] !== 'cash' && empty($validated['payment_provider'])) {
+                return response()->json(['success' => false, 'message' => 'Payment provider is required for non-cash payments.'], 422);
+            }
+            if ($validated['payment_method'] !== 'cash' && empty($validated['reference_number'])) {
+                $label = $validated['payment_method'] === 'e_wallet' ? 'E-Wallet' : 'Bank Transfer';
+                return response()->json(['success' => false, 'message' => "Reference number is required for {$label} payments."], 422);
             }
 
-            // Generate reference number if not provided
-            $referenceNumber = $validated['reference_number'] ?: $this->generateReferenceNumber($validated['payment_method']);
+            $result = DB::transaction(function () use ($validated, $id) {
+                $payment = Payment::whereKey($id)->lockForUpdate()->firstOrFail();
+                $payment->refreshStatusFromDueDate();
+                $payment->balance = max(0, (float) $payment->total_amount - (float) $payment->amount_paid);
 
-            $payment->update([
-                'amount_paid' => $payment->amount_paid + $validated['amount'],
-                'balance' => max(0, $payment->balance - $validated['amount']),
-                'payment_method' => $validated['payment_method'],
-                'reference_number' => $referenceNumber,
-                'remarks' => $validated['remarks'],
-                'payment_date' => Carbon::now(),
-                'status' => $validated['amount'] >= $payment->balance ? 'paid' : 'partial',
-            ]);
+                if ((float) $validated['amount'] > (float) $payment->balance) {
+                    abort(response()->json(['success' => false, 'message' => 'Payment amount exceeds the remaining balance.'], 422));
+                }
+
+                $transaction = PaymentTransaction::create([
+                    'payment_id' => $payment->id,
+                    'amount' => $validated['amount'],
+                    'paid_date' => $validated['paid_date'],
+                    'payment_method' => $validated['payment_method'],
+                    'payment_provider' => $validated['payment_provider'] ?? null,
+                    'reference_number' => $validated['reference_number'] ?? null,
+                    'recorded_by' => auth()->id(),
+                    'remarks' => $validated['remarks'] ?? null,
+                ]);
+
+                $payment->amount_paid = PaymentTransaction::where('payment_id', $payment->id)->sum('amount');
+                $payment->balance = max(0, (float) $payment->total_amount - (float) $payment->amount_paid);
+                $payment->payment_date = $validated['paid_date'];
+                $payment->payment_method = $validated['payment_method'];
+                $payment->payment_provider = $validated['payment_method'] === 'cash' ? null : ($validated['payment_provider'] ?? null);
+                $payment->reference_number = $validated['payment_method'] === 'cash' ? null : ($validated['reference_number'] ?? null);
+                $payment->remarks = $validated['remarks'] ?? null;
+                $payment->status = $payment->amount_paid >= $payment->total_amount
+                    ? 'paid'
+                    : ($payment->amount_paid > 0 ? 'partial' : ($payment->isOverdue() ? 'overdue' : 'pending'));
+                $payment->save();
+
+                return [$payment, $transaction];
+            });
+
+            [$payment, $transaction] = $result;
 
             return response()->json([
                 'success' => true,
                 'message' => 'Payment recorded successfully',
-                'data' => $payment
+                'data' => $payment->fresh(['contract.tenant', 'transactions.recorder']),
+                'transaction' => $transaction->load('recorder'),
             ]);
         } catch (\Exception $e) {
             return response()->json([

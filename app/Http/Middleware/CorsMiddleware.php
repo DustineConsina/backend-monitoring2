@@ -27,9 +27,18 @@ class CorsMiddleware
         ];
 
         $origin = $request->header('origin');
-        
+
+        // Allow any private LAN origin (192.168.x.x, 10.x.x.x, 172.16-31.x.x) on any port
+        $isLanOrigin = false;
+        if ($origin) {
+            $host = parse_url($origin, PHP_URL_HOST) ?? '';
+            $isLanOrigin = preg_match('/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/', $host) === 1;
+        }
+
+        $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLanOrigin);
+
         // Always allow requests from allowed origins
-        if ($origin && in_array($origin, $allowedOrigins)) {
+        if ($isAllowed) {
             // Handle OPTIONS preflight requests
             if ($request->getMethod() === 'OPTIONS') {
                 return response('', 200)

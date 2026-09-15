@@ -15,11 +15,13 @@ class RentalSpaceController extends Controller
      */
     public function index(Request $request)
     {
-        // Load with relationship and count active contracts
+        \App\Models\Contract::updateStatuses();
+
+        // Load with relationship and count active / renewed contracts
         $query = RentalSpace::with(['contracts' => function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
         }])->withCount(['contracts as active_contracts_count' => function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
         }]);
 
         // Search
@@ -37,22 +39,38 @@ class RentalSpaceController extends Controller
             $query->where('space_type', $request->space_type);
         }
 
-        // Filter by status (but also consider active contracts)
-        if ($request->has('status')) {
-            $status = strtolower($request->status);
-            if ($status === 'occupied') {
-                // Show spaces with active contracts
-                $query->whereHas('contracts', function ($q) {
-                    $q->where('status', 'active');
+        $statusFilter = $request->has('status') ? strtolower((string) $request->status) : null;
+
+        // Default to only available spaces for selection forms like Create Contract.
+        // This avoids showing occupied or reserved units unless the caller explicitly asks for all data.
+        if (!$request->boolean('include_all') && empty($statusFilter)) {
+            $query->where(function ($q) {
+                    $q->where('status', 'available')
+                      ->orWhereNull('status')
+                      ->orWhere('status', '');
+                })
+                ->whereDoesntHave('contracts', function ($q) {
+                    $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                 });
-            } elseif ($status === 'available') {
-                // Show spaces without active contracts
+        }
+
+        // Filter by status (but also consider active contracts)
+        if ($statusFilter) {
+            if ($statusFilter === 'all') {
+                // Explicitly allow all spaces when caller asks for them.
+            } elseif ($statusFilter === 'occupied') {
+                // Show spaces with active, pending, for_renewal, or renewed contracts
+                $query->whereHas('contracts', function ($q) {
+                    $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
+                });
+            } elseif ($statusFilter === 'available') {
+                // Show spaces without any active/renewal/pending contract in force
                 $query->whereDoesntHave('contracts', function ($q) {
-                    $q->where('status', 'active');
+                    $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                 });
             } else {
                 // Filter by the status field
-                $query->where('status', $status);
+                $query->where('status', $statusFilter);
             }
         }
 
@@ -252,12 +270,25 @@ class RentalSpaceController extends Controller
     public function getAvailableSpaces(Request $request)
     {
         try {
-            // Only spaces marked available and without active or pending contracts
-            $query = RentalSpace::where('status', 'available')
-                ->whereDoesntHave('contracts', function ($q) {
-                    $q->whereIn('status', ['active', 'pending']);
+            // Refresh status before filtering so the dropdown reflects the real current state.
+            \App\Models\Contract::updateStatuses();
+            RentalSpace::syncOccupancyStatuses();
+
+            // Only spaces that are truly available should be returned. A space is unavailable if
+            // it has an active/for_renewal/pending contract or if it is explicitly marked as occupied,
+            // maintenance, reserved, rented, terminated, or unavailable.
+            $query = RentalSpace::where(function ($q) {
+                    $q->where('status', 'available')
+                      ->orWhereNull('status')
+                      ->orWhere('status', '');
                 })
-                ->with('contracts');
+                ->whereNotIn('status', ['occupied', 'maintenance', 'reserved', 'rented', 'terminated', 'unavailable'])
+                ->whereDoesntHave('contracts', function ($q) {
+                    $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
+                })
+                ->with(['contracts' => function ($q) {
+                    $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
+                }]);
 
             // Optional: filter by space type
             if ($request->has('space_type')) {
@@ -287,16 +318,16 @@ class RentalSpaceController extends Controller
      */
     public function getStatistics()
     {
-        // Count spaces without active contracts
+        // Count spaces without active/for_renewal contracts
         $availableSpacesCount = RentalSpace::where('status', 'available')
             ->whereDoesntHave('contracts', function ($q) {
-                $q->where('status', 'active');
+                $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
             })->count();
         
         // Count spaces with active contracts
         $occupiedSpacesCount = RentalSpace::where('status', 'occupied')
             ->orWhereHas('contracts', function ($q) {
-                $q->where('status', 'active');
+                $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
             })->count();
         
         $stats = [
@@ -309,7 +340,7 @@ class RentalSpaceController extends Controller
                     'total' => RentalSpace::where('space_type', 'food_stall')->count(),
                     'available' => RentalSpace::where('space_type', 'food_stall')
                         ->whereDoesntHave('contracts', function ($q) {
-                            $q->where('status', 'active');
+                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                         })->count(),
                     'occupied' => RentalSpace::where('space_type', 'food_stall')->where('status', 'occupied')->count(),
                 ],
@@ -317,7 +348,7 @@ class RentalSpaceController extends Controller
                     'total' => RentalSpace::where('space_type', 'market_hall')->count(),
                     'available' => RentalSpace::where('space_type', 'market_hall')
                         ->whereDoesntHave('contracts', function ($q) {
-                            $q->where('status', 'active');
+                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                         })->count(),
                     'occupied' => RentalSpace::where('space_type', 'market_hall')->where('status', 'occupied')->count(),
                 ],
@@ -325,7 +356,7 @@ class RentalSpaceController extends Controller
                     'total' => RentalSpace::where('space_type', 'banera_warehouse')->count(),
                     'available' => RentalSpace::where('space_type', 'banera_warehouse')
                         ->whereDoesntHave('contracts', function ($q) {
-                            $q->where('status', 'active');
+                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                         })->count(),
                     'occupied' => RentalSpace::where('space_type', 'banera_warehouse')->where('status', 'occupied')->count(),
                 ],

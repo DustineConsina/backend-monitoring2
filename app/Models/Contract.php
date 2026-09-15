@@ -11,6 +11,27 @@ class Contract extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected static function booted(): void
+    {
+        static::forceDeleted(function (self $contract) {
+            $contract->payments()->delete();
+
+            if ($contract->rental_space_id) {
+                $hasOtherActiveContract = self::withTrashed()
+                    ->where('rental_space_id', $contract->rental_space_id)
+                    ->where('id', '!=', $contract->id)
+                    ->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed'])
+                    ->exists();
+
+                if (!$hasOtherActiveContract && $contract->rentalSpace) {
+                    $contract->rentalSpace->update(['status' => 'available']);
+                }
+            }
+
+            RentalSpace::syncOccupancyStatuses();
+        });
+    }
+
     protected $fillable = [
         'contract_number',
         'tenant_id',
@@ -122,9 +143,62 @@ class Contract extends Model
     public function needsRenewal()
     {
         $twoMonthsFromNow = Carbon::now()->addMonths(2);
-        return $this->status === 'active' && 
+        return in_array($this->status, ['active', 'for_renewal']) && 
                $this->end_date->lte($twoMonthsFromNow) && 
                $this->end_date->gt(Carbon::now());
+    }
+
+    /**
+     * Update contract statuses dynamically:
+     * - Active contracts within 2 months of expiry -> for_renewal
+     * - Contracts past end_date -> expired and release rental space
+     */
+    public static function updateStatuses()
+    {
+        $now = Carbon::now();
+        $twoMonthsFromNow = $now->copy()->addMonths(2);
+
+        // 1. Update active contracts with two months or less remaining to 'for_renewal'
+        self::where('status', 'active')
+            ->where('end_date', '<=', $twoMonthsFromNow)
+            ->where('end_date', '>', $now)
+            ->update(['status' => 'for_renewal']);
+
+        // 2. A renewed contract stays renewed for the 5-day grace period after renewal,
+        // then it becomes active again.
+        $renewedContracts = self::where('status', 'renewed')
+            ->where('start_date', '<=', $now->copy()->subDays(5))
+            ->get();
+
+        foreach ($renewedContracts as $contract) {
+            $contract->status = 'active';
+            $contract->save();
+        }
+
+        // 3. Update contracts past end_date to 'expired'
+        $expiredContracts = self::whereIn('status', ['active', 'for_renewal'])
+            ->where('end_date', '<', $now)
+            ->whereNot('status', 'renewed')
+            ->get();
+
+        foreach ($expiredContracts as $contract) {
+            $contract->status = 'expired';
+            $contract->save();
+
+            if ($contract->rentalSpace) {
+                // Only free space if there is no other active/for_renewal contract
+                $hasOtherActive = self::where('rental_space_id', $contract->rental_space_id)
+                    ->where('id', '!=', $contract->id)
+                    ->whereIn('status', ['active', 'for_renewal'])
+                    ->exists();
+
+                if (!$hasOtherActive) {
+                    $contract->rentalSpace->update(['status' => 'available']);
+                }
+            }
+        }
+
+        RentalSpace::syncOccupancyStatuses();
     }
 
     /**
@@ -313,49 +387,39 @@ class Contract extends Model
      */
     public function generatePaymentSchedule()
     {
+        if ($this->payments()->exists()) {
+            return;
+        }
+
         $startDate = Carbon::parse($this->start_date);
         $endDate = Carbon::parse($this->end_date);
         $monthCount = 0;
 
         while ($monthCount < 60) { // Limit to 60 months
-            // Period runs from contract anniversary to next anniversary
             $periodStart = $startDate->copy()->addMonths($monthCount);
             $periodEnd = $startDate->copy()->addMonths($monthCount + 1);
-            
-            // Stop if period goes beyond contract end date
+
             if ($periodStart->gt($endDate)) {
                 break;
             }
-            
+
             if ($periodEnd->gt($endDate)) {
                 $periodEnd = $endDate->copy();
             }
 
-            // Check if payment already exists for this period
-            $existingPayment = Payment::where('contract_id', $this->id)
-                ->whereDate('billing_period_start', $periodStart)
-                ->first();
-            
-            if ($existingPayment) {
-                $monthCount++;
-                continue; // Skip if already exists
-            }
-
-            // Due date is on the contract anniversary (one month from period start)
             $dueDate = $periodEnd->copy();
 
-            // Get the next sequential payment number
             $lastPayment = Payment::orderBy('id', 'desc')->first();
             $nextNumber = ($lastPayment ? intval(substr($lastPayment->payment_number, -6)) : 0) + 1;
             $paymentNumber = 'PAY-' . date('Y') . '-' . str_pad($nextNumber, 6, '0', STR_PAD_LEFT);
 
-            // Create payment without due_date (will set separately)
-            $payment = Payment::create([
+            Payment::create([
                 'payment_number' => $paymentNumber,
                 'contract_id' => $this->id,
                 'tenant_id' => $this->tenant_id,
                 'billing_period_start' => $periodStart,
                 'billing_period_end' => $periodEnd,
+                'due_date' => $dueDate,
                 'amount_due' => $this->monthly_rental,
                 'interest_amount' => $this->monthly_rental * 0.03,
                 'total_amount' => $this->monthly_rental * 1.03,
@@ -363,10 +427,6 @@ class Contract extends Model
                 'balance' => $this->monthly_rental * 1.03,
                 'status' => 'pending',
             ]);
-            
-            // Set due_date directly (since it's protected from mass assignment)
-            $payment->due_date = $dueDate;
-            $payment->save();
 
             $monthCount++;
         }

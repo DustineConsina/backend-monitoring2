@@ -50,6 +50,8 @@ Route::post('/qr-scan', [TenantController::class, 'scanQRCode']);
 Route::get('/storage/{path}', [TenantController::class, 'serveFile'])->where('path', '.*');
 Route::get('/contracts/{id}/view', [ContractController::class, 'viewQRContract']);
 Route::get('/contracts/{id}/lease', [ContractController::class, 'downloadLease']);
+// Public QR scan info requires the tenant's generated 8-digit access code.
+Route::post('/public/tenant/{id}', [TenantController::class, 'publicTenantInfo']);
 
 // DEBUG: Direct database check (remove after debugging)
 Route::get('/debug/contract/{id}', function($id) {
@@ -94,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('payments', PaymentController::class)->only(['index', 'show', 'store']);
     Route::put('/payments/{id}', [PaymentController::class, 'update']);
     Route::patch('/payments/{id}', [PaymentController::class, 'update']);
+    Route::delete('/payments/{id}', [PaymentController::class, 'destroy']);
     Route::post('/payments/{id}/record', [PaymentController::class, 'recordPayment']);
     Route::patch('/payments/{id}/status', [PaymentController::class, 'updateStatus']);
     Route::post('/payments/calculate-overdue', [PaymentController::class, 'calculateOverduePayments']);
@@ -125,8 +128,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::get('/notifications/unread', [NotificationController::class, 'getUnread']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'getUnreadCount']);
+    Route::get('/notifications/stream', [NotificationController::class, 'stream']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+    Route::put('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
     Route::delete('/notifications', [NotificationController::class, 'deleteAll']);
 

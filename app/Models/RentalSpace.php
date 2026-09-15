@@ -9,6 +9,16 @@ class RentalSpace extends Model
 {
     use HasFactory;
 
+    public static function occupiedContractStatuses(): array
+    {
+        return ['active', 'for_renewal', 'pending', 'renewed'];
+    }
+
+    public static function blockingContractStatuses(): array
+    {
+        return ['active', 'for_renewal', 'pending', 'renewed'];
+    }
+
     protected $fillable = [
         'space_code',
         'space_type',
@@ -38,7 +48,7 @@ class RentalSpace extends Model
      */
     public function activeContract()
     {
-        return $this->hasOne(Contract::class)->where('status', 'active');
+        return $this->hasOne(Contract::class)->whereIn('status', self::occupiedContractStatuses());
     }
 
     /**
@@ -53,7 +63,7 @@ class RentalSpace extends Model
             'id',
             'id',
             'tenant_id'
-        )->where('contracts.status', 'active');
+        )->whereIn('contracts.status', self::occupiedContractStatuses());
     }
 
     /**
@@ -61,16 +71,27 @@ class RentalSpace extends Model
      */
     public function isAvailable()
     {
-        return !$this->activeContract()->exists();
+        $hasBlockingContract = $this->contracts()->whereIn('status', self::blockingContractStatuses())->exists();
+
+        if ($hasBlockingContract) {
+            return false;
+        }
+
+        $status = strtolower((string) ($this->status ?? ''));
+
+        return $status === 'available' || $status === '' || is_null($this->status);
     }
 
     /**
-     * Scope: Only available rental spaces (without active or pending contracts)
+     * Scope: Only available rental spaces (without active, renewal, or pending contracts).
      */
     public function scopeAvailable($query)
     {
         return $query->whereDoesntHave('contracts', function ($q) {
-            $q->whereIn('status', ['active', 'pending']);
+            $q->whereIn('status', self::occupiedContractStatuses());
+        })->where(function ($q) {
+            $q->whereIn('status', ['available', ''])
+              ->orWhereNull('status');
         });
     }
 
@@ -80,8 +101,28 @@ class RentalSpace extends Model
     public function scopeOccupied($query)
     {
         return $query->whereHas('contracts', function ($q) {
-            $q->where('status', 'active');
+            $q->whereIn('status', self::occupiedContractStatuses());
         });
+    }
+
+    /**
+     * Reconcile the stored status with current active contract assignments.
+     */
+    public static function syncOccupancyStatuses()
+    {
+        $occupiedContractStatuses = self::occupiedContractStatuses();
+
+        self::whereHas('contracts', function ($query) use ($occupiedContractStatuses) {
+            $query->whereIn('status', $occupiedContractStatuses);
+        })->whereNotIn('status', ['occupied', 'maintenance', 'reserved', 'rented', 'terminated', 'unavailable'])
+          ->update(['status' => 'occupied']);
+
+        self::where(function ($query) {
+            $query->whereIn('status', ['occupied', 'reserved', 'rented', 'unavailable', 'terminated'])
+                ->orWhere('status', 'maintenance');
+        })->whereDoesntHave('contracts', function ($query) use ($occupiedContractStatuses) {
+            $query->whereIn('status', $occupiedContractStatuses);
+        })->update(['status' => 'available']);
     }
 
     /**

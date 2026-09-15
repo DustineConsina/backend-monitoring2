@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class Notification extends Model
 {
@@ -19,7 +20,35 @@ class Notification extends Model
         'email_sent',
         'read_at',
         'email_sent_at',
+        'notification_key',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $notification) {
+            if (!Schema::hasColumn('notifications', 'notification_key')) {
+                return;
+            }
+
+            if (empty($notification->notification_key)) {
+                $payload = [
+                    'user_id' => $notification->user_id,
+                    'type' => $notification->type,
+                    'title' => $notification->title,
+                    'message' => $notification->message,
+                    'data' => $notification->data ?? [],
+                ];
+
+                try {
+                    $messagePayload = json_encode($payload, JSON_THROW_ON_ERROR);
+                } catch (\JsonException $e) {
+                    $messagePayload = json_encode($payload);
+                }
+
+                $notification->notification_key = md5((string) $messagePayload);
+            }
+        });
+    }
 
     protected $casts = [
         'data' => 'array',

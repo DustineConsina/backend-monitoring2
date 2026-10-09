@@ -16,8 +16,8 @@ class AdminUserSeeder extends Seeder
     {
         $users = [
             [
-                'email' => 'admin@pfda.gov.ph',
-                'name' => 'Dustine Consina',
+                'email' => 'Joannaruby@pfda.gov.ph',
+                'name' => 'Joanna Ruby Layosa',
                 'role' => 'admin',
                 'phone' => '09123456789',
             ],
@@ -28,7 +28,7 @@ class AdminUserSeeder extends Seeder
                 'phone' => '09123456790',
             ],
             [
-                'email' => 'cashier@pfda.gov.ph',
+                'email' => 'buizakeanalyn@pfda.gov.ph',
                 'name' => 'Keanalyn Buiza',
                 'role' => 'cashier',
                 'phone' => '09123456791',

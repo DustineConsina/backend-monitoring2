@@ -67,7 +67,8 @@ Visit: `http://localhost:8000`
 ## 🔐 Default Login Credentials
 
 **Admin:**
-- Email: `admin@pfda.gov.ph`
+- Name: `Joanna Ruby Layosa`
+- Email: `Joannaruby@pfda.gov.ph`
 - Password: `password123`
 
 **Staff:**
@@ -137,6 +138,13 @@ Configure the Render `CLOUDINARY_URL` variable for media storage. If email
 delivery is enabled, also configure the SMTP values declared in `render.yaml`.
 The Render entrypoint validates required settings, runs migrations, and starts
 Apache; it does not seed or overwrite production data.
+
+To create or reset the production administrator after deployment, open the
+Render service Shell and run `php artisan admin:reset-password`. Enter the
+password twice at the hidden prompts; use at least 12 characters. The command
+creates or updates `Joannaruby@pfda.gov.ph` as Joanna Ruby Layosa, resets the
+password, and activates its admin role. It revokes existing API tokens for that account and
+does not print or accept the password as a command-line argument.
 
 Before switching existing data to Render, run
 `php artisan assets:migrate-local-to-cloudinary --dry-run` on the current backend

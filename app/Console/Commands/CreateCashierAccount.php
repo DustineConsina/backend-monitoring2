@@ -27,7 +27,7 @@ class CreateCashierAccount extends Command
      */
     public function handle()
     {
-        $email = 'cashier@pfda.gov.ph';
+        $email = 'buizakeanalyn@pfda.gov.ph';
         
         $cashier = User::where('email', $email)->first();
         

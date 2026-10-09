@@ -265,7 +265,7 @@ php artisan db:seed
 ```
 
 This will create:
-- Admin user (admin@pfda.gov.ph / password123)
+- Admin user (Joannaruby@pfda.gov.ph / password123 for local development only)
 - Staff user (staff@pfda.gov.ph / password123)
 - 10 Food Stalls
 - 39 Market Hall Bays
@@ -366,7 +366,7 @@ POST /api/login
 Content-Type: application/json
 
 {
-  "email": "admin@pfda.gov.ph",
+  "email": "Joannaruby@pfda.gov.ph",
   "password": "password123"
 }
 
@@ -539,7 +539,8 @@ Or set up Windows Task Scheduler to run the scheduler every minute.
 ## 🔐 Default Credentials
 
 ### Admin Account
-- **Email:** admin@pfda.gov.ph
+- **Name:** Joanna Ruby Layosa
+- **Email:** Joannaruby@pfda.gov.ph
 - **Password:** password123
 - **Role:** Admin
 

@@ -152,7 +152,8 @@ php artisan serve
 ## 🔐 Default Credentials
 
 ### Admin
-- Email: `admin@pfda.gov.ph`
+- Email: `Joannaruby@pfda.gov.ph`
+- Name: `Joanna Ruby Layosa`
 - Password: `password123`
 
 ### Staff

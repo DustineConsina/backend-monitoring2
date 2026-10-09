@@ -1,7 +1,7 @@
 <?php
 Route::get('/test-db', function() {
     try {
-        $admin = \App\Models\User::where('email', 'admin@pfda.gov.ph')->first();
+        $admin = \App\Models\User::where('email', 'Joannaruby@pfda.gov.ph')->first();
         
         if ($admin) {
             return response()->json([

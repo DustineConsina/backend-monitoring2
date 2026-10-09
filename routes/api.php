@@ -12,6 +12,8 @@ use App\Http\Controllers\RentalSpaceController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ComplaintController;
+use App\Http\Controllers\SmsMessageController;
 
 /*
 |--------------------------------------------------------------------------
@@ -44,12 +46,9 @@ Route::get('/health', function() {
 });
 
 // Public routes
-Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/qr-scan', [TenantController::class, 'scanQRCode']);
 Route::get('/storage/{path}', [TenantController::class, 'serveFile'])->where('path', '.*');
-Route::get('/contracts/{id}/view', [ContractController::class, 'viewQRContract']);
-Route::get('/contracts/{id}/lease', [ContractController::class, 'downloadLease']);
 // Public QR scan info requires the tenant's generated 8-digit access code.
 Route::post('/public/tenant/{id}', [TenantController::class, 'publicTenantInfo']);
 
@@ -69,7 +68,7 @@ Route::get('/debug/contract/{id}', function($id) {
 });
 
 // Protected routes
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'tenant.access'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
@@ -79,15 +78,38 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/debug', [DashboardController::class, 'debug']);
 
-    // Tenants
-    Route::apiResource('tenants', TenantController::class);
-    Route::get('/tenants/{id}/qr-code', [TenantController::class, 'getQRCodeWithDetails']);
-    Route::post('/tenants/{id}/generate-qr', [TenantController::class, 'generateQRCode']);
-    Route::post('/tenants/{id}/upload-picture', [TenantController::class, 'uploadPicture']);
+    // Tenant administration is limited to admin/staff accounts.
+    Route::middleware('role:admin,staff')->group(function () {
+        Route::apiResource('tenants', TenantController::class)->except(['store']);
+        Route::get('/tenants/{id}/qr-code', [TenantController::class, 'getQRCodeWithDetails']);
+        Route::post('/tenants/{id}/generate-qr', [TenantController::class, 'generateQRCode']);
+        Route::post('/tenants/{id}/upload-picture', [TenantController::class, 'uploadPicture']);
+        Route::get('/sms-messages', [SmsMessageController::class, 'index']);
+        Route::post('/sms-messages', [SmsMessageController::class, 'store']);
+    });
+    Route::middleware('role:admin')->post('/tenants', [TenantController::class, 'store']);
+    Route::middleware('role:admin')->post('/tenants/{id}/reset-password', [TenantController::class, 'resetPassword']);
+
+    // Tenant self-service routes: identity is always taken from the Sanctum user.
+    Route::middleware('role:tenant')->group(function () {
+        Route::get('/tenant/portal', [TenantController::class, 'authenticatedTenantInfo']);
+        Route::get('/tenant/complaints', [ComplaintController::class, 'mine']);
+        Route::post('/tenant/complaints', [ComplaintController::class, 'store']);
+        Route::post('/tenant/complaints/{id}/replies', [ComplaintController::class, 'replyAsTenant']);
+    });
+
+    Route::middleware('role:admin,staff')->group(function () {
+        Route::get('/complaints', [ComplaintController::class, 'index']);
+        Route::get('/complaints/unread-count', [ComplaintController::class, 'unreadCount']);
+        Route::patch('/complaints/{id}/read', [ComplaintController::class, 'markRead']);
+        Route::put('/complaints/{id}', [ComplaintController::class, 'update']);
+    });
 
     // Contracts
     Route::apiResource('contracts', ContractController::class);
     Route::get('/contracts/{id}/qr-code', [ContractController::class, 'getQRCode']);
+    Route::get('/contracts/{id}/view', [ContractController::class, 'viewQRContract']);
+    Route::get('/contracts/{id}/lease', [ContractController::class, 'downloadLease']);
     Route::post('/contracts/{id}/activate', [ContractController::class, 'activate']);
     Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate']);
     Route::post('/contracts/{id}/renew', [ContractController::class, 'renew']);
@@ -97,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/payments/{id}', [PaymentController::class, 'update']);
     Route::patch('/payments/{id}', [PaymentController::class, 'update']);
     Route::delete('/payments/{id}', [PaymentController::class, 'destroy']);
+    Route::post('/payments/{id}/restore', [PaymentController::class, 'restore']);
     Route::post('/payments/{id}/record', [PaymentController::class, 'recordPayment']);
     Route::patch('/payments/{id}/status', [PaymentController::class, 'updateStatus']);
     Route::post('/payments/calculate-overdue', [PaymentController::class, 'calculateOverduePayments']);

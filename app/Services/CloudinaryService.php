@@ -14,19 +14,19 @@ class CloudinaryService
     {
         try {
             // Parse CLOUDINARY_URL if set
-            $cloudinaryUrl = env('CLOUDINARY_URL');
+            $cloudinaryUrl = config('services.cloudinary.url');
             
             if ($cloudinaryUrl) {
                 // Parse cloudinary://key:secret@cloudname format
                 $this->cloudinary = new Cloudinary($cloudinaryUrl);
                 // Extract cloud name from URL
                 preg_match('/cloudinary:\/\/[^:]+:[^@]+@([^\/]+)/', $cloudinaryUrl, $matches);
-                $this->cloudName = $matches[1] ?? env('CLOUDINARY_CLOUD_NAME', '');
+                $this->cloudName = $matches[1] ?? config('services.cloudinary.cloud_name', '');
             } else {
                 // Fallback to individual env variables
-                $this->cloudName = env('CLOUDINARY_CLOUD_NAME', '');
-                $apiKey = env('CLOUDINARY_API_KEY', '');
-                $apiSecret = env('CLOUDINARY_API_SECRET', '');
+                $this->cloudName = config('services.cloudinary.cloud_name', '');
+                $apiKey = config('services.cloudinary.api_key', '');
+                $apiSecret = config('services.cloudinary.api_secret', '');
                 
                 if (!$this->cloudName || !$apiKey || !$apiSecret) {
                     \Log::warning('Cloudinary credentials not fully configured', [
@@ -68,7 +68,42 @@ class CloudinaryService
      * @param string $public_id
      * @return array
      */
-    public function uploadFile(UploadedFile $file, string $folder = 'profile-pictures', ?string $public_id = null): array
+    public function uploadFile(
+        UploadedFile $file,
+        string $folder = 'profile-pictures',
+        ?string $public_id = null,
+        string $resourceType = 'auto'
+    ): array
+    {
+        return $this->uploadSource(
+            $file->getRealPath(),
+            $folder,
+            $public_id,
+            $resourceType,
+            $file->getMimeType()
+        );
+    }
+
+    public function uploadContent(
+        string $content,
+        string $folder,
+        string $public_id,
+        string $mimeType,
+        string $resourceType = 'image'
+    ): array
+    {
+        $source = 'data:' . $mimeType . ';base64,' . base64_encode($content);
+
+        return $this->uploadSource($source, $folder, $public_id, $resourceType, $mimeType);
+    }
+
+    private function uploadSource(
+        string $source,
+        string $folder,
+        ?string $public_id,
+        string $resourceType,
+        ?string $mimeType = null
+    ): array
     {
         try {
             if (!$this->cloudinary) {
@@ -80,35 +115,40 @@ class CloudinaryService
 
             $options = [
                 'folder' => $folder,
-                'resource_type' => 'auto',
-                'quality' => 'auto',
-                'fetch_format' => 'auto',
+                'resource_type' => $resourceType,
             ];
+
+            if ($resourceType === 'image' || $resourceType === 'auto') {
+                $options['quality'] = 'auto';
+                $options['fetch_format'] = 'auto';
+            }
 
             if ($public_id) {
                 $options['public_id'] = $public_id;
             }
 
             $result = $this->cloudinary->uploadApi()->upload(
-                $file->getRealPath(),
+                $source,
                 $options
             );
 
             \Log::info('Cloudinary upload successful', [
                 'public_id' => $result['public_id'],
-                'url' => $result['secure_url']
+                'url' => $result['secure_url'],
+                'resource_type' => $result['resource_type'],
             ]);
 
             return [
                 'success' => true,
                 'url' => $result['secure_url'],
                 'public_id' => $result['public_id'],
-                'resource_type' => $result['resource_type']
+                'resource_type' => $result['resource_type'],
             ];
         } catch (\Exception $e) {
             \Log::error('Cloudinary upload error', [
                 'error' => $e->getMessage(),
-                'file' => $file->getClientOriginalName(),
+                'folder' => $folder,
+                'mime_type' => $mimeType,
                 'trace' => $e->getTraceAsString()
             ]);
             
@@ -125,14 +165,16 @@ class CloudinaryService
      * @param string $public_id
      * @return boolean
      */
-    public function deleteFile(string $public_id): bool
+    public function deleteFile(string $public_id, string $resourceType = 'image'): bool
     {
         try {
             if (!$this->cloudinary) {
                 return false;
             }
 
-            $this->cloudinary->uploadApi()->destroy($public_id);
+            $this->cloudinary->uploadApi()->destroy($public_id, [
+                'resource_type' => $resourceType,
+            ]);
             return true;
         } catch (\Exception $e) {
             \Log::error('Cloudinary delete error: ' . $e->getMessage());
@@ -148,7 +190,12 @@ class CloudinaryService
      * @param int $height
      * @return string|null
      */
-    public function generateUrl(string $public_id, int $width = 200, int $height = 200): ?string
+    public function generateUrl(
+        string $public_id,
+        int $width = 200,
+        int $height = 200,
+        string $resourceType = 'image'
+    ): ?string
     {
         try {
             if (!$this->cloudName) {
@@ -156,10 +203,12 @@ class CloudinaryService
                 return null;
             }
 
-            // Build URL with transformations in correct format (comma-separated)
-            // Format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{public_id}
+            if ($resourceType === 'raw') {
+                return "https://res.cloudinary.com/{$this->cloudName}/raw/upload/{$public_id}";
+            }
+
             $transformations = "f_auto,q_auto,w_{$width},h_{$height},c_fill";
-            $url = "https://res.cloudinary.com/{$this->cloudName}/image/upload/{$transformations}/{$public_id}";
+            $url = "https://res.cloudinary.com/{$this->cloudName}/{$resourceType}/upload/{$transformations}/{$public_id}";
             
             return $url;
         } catch (\Exception $e) {

@@ -21,7 +21,10 @@ class PaymentController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Payment::with(['tenant.user', 'contract.rentalSpace', 'transactions.recorder']);
+        $query = $request->boolean('archived')
+            ? Payment::onlyTrashed()
+            : Payment::query();
+        $query->with(['tenant.user', 'contract.rentalSpace', 'transactions.recorder']);
 
         // Search
         if ($request->has('search')) {
@@ -73,6 +76,27 @@ class PaymentController extends Controller
         return response()->json([
             'success' => true,
             'data' => $payments
+        ]);
+    }
+
+    public function restore($id)
+    {
+        $role = strtolower((string) optional(request()->user())->role);
+        if ($role !== 'cashier') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only cashiers can restore payments.'
+            ], 403);
+        }
+
+        $payment = Payment::onlyTrashed()->findOrFail($id);
+        $payment->restore();
+        AuditLog::log('update', 'Payment', $payment->id, "Restored payment: {$payment->payment_number}");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment restored successfully',
+            'data' => $payment->load(['tenant.user', 'contract.rentalSpace'])
         ]);
     }
 
@@ -591,20 +615,20 @@ class PaymentController extends Controller
     }
 
     /**
-     * Delete a payment record from the database.
+     * Archive a payment record without removing it permanently.
      */
     public function destroy($id)
     {
         $payment = Payment::findOrFail($id);
         $paymentNumber = $payment->payment_number;
 
-        AuditLog::log('delete', 'Payment', $payment->id, "Deleted payment: {$paymentNumber}");
+        AuditLog::log('delete', 'Payment', $payment->id, "Archived payment: {$paymentNumber}");
 
         $payment->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Payment deleted successfully'
+            'message' => 'Payment archived successfully'
         ]);
     }
 

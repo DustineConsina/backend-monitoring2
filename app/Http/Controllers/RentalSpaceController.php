@@ -4,12 +4,72 @@ namespace App\Http\Controllers;
 
 use App\Models\RentalSpace;
 use App\Models\AuditLog;
+use App\Services\CloudinaryService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Throwable;
 
 class RentalSpaceController extends Controller
 {
+    public function __construct(private CloudinaryService $cloudinary)
+    {
+    }
+
+    private function withMapImageUrl(RentalSpace $space): RentalSpace
+    {
+        $image = (string) $space->map_image;
+        $space->setAttribute(
+            'map_image_url',
+            str_starts_with($image, 'rental-spaces/')
+                ? $this->cloudinary->generateUrl($image, 1200, 900)
+                : $image
+        );
+
+        return $space;
+    }
+
+    private function uploadMapImage(UploadedFile $file): array
+    {
+        $result = $this->cloudinary->uploadFile(
+            $file,
+            'rental-spaces',
+            'space-' . Str::uuid()
+        );
+
+        if (!$result['success']) {
+            \Log::error('Rental space image upload to Cloudinary failed', [
+                'reason' => $result['message'] ?? 'Unknown Cloudinary error',
+            ]);
+        }
+
+        return $result;
+    }
+
+    private function deleteMapImage(?string $image): void
+    {
+        if (!$image) {
+            return;
+        }
+
+        if (
+            str_starts_with($image, 'rental-spaces/')
+            && !Storage::disk('public')->exists($image)
+        ) {
+            if (!$this->cloudinary->deleteFile($image)) {
+                \Log::warning('Failed to delete old rental space image from Cloudinary', [
+                    'public_id' => $image,
+                ]);
+            }
+
+            return;
+        }
+
+        Storage::disk('public')->delete($image);
+    }
+
     /**
      * Display a listing of rental spaces
      */
@@ -65,7 +125,11 @@ class RentalSpaceController extends Controller
                 });
             } elseif ($statusFilter === 'available') {
                 // Show spaces without any active/renewal/pending contract in force
-                $query->whereDoesntHave('contracts', function ($q) {
+                $query->where(function ($q) {
+                    $q->where('status', 'available')
+                        ->orWhereNull('status')
+                        ->orWhere('status', '');
+                })->whereDoesntHave('contracts', function ($q) {
                     $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
                 });
             } else {
@@ -85,6 +149,7 @@ class RentalSpaceController extends Controller
         $spaces->getCollection()->transform(function ($space) {
             $space->is_occupied = $space->active_contracts_count > 0;
             $space->occupancy_status = $space->active_contracts_count > 0 ? 'occupied' : 'available';
+            $this->withMapImageUrl($space);
             
             // DEBUG: Log first few spaces
             static $logCount = 0;
@@ -117,7 +182,7 @@ class RentalSpaceController extends Controller
             'size_sqm' => 'required|numeric|min:0',
             'description' => 'nullable|string',
             'base_rental_rate' => 'required|numeric|min:0',
-            'map_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'map_image' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp|max:10240',
         ]);
 
         if ($validator->fails()) {
@@ -137,24 +202,39 @@ class RentalSpaceController extends Controller
         $count = RentalSpace::where('space_type', $request->space_type)->count() + 1;
         $spaceCode = $typePrefix . '-' . str_pad($count, 3, '0', STR_PAD_LEFT);
 
-        // Handle map image upload
         $mapImage = null;
         if ($request->hasFile('map_image')) {
-            $mapImage = $request->file('map_image')->store('rental_spaces', 'public');
+            $upload = $this->uploadMapImage($request->file('map_image'));
+            if (!$upload['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Rental space image upload failed. Check the Cloudinary configuration and try again.',
+                ], 502);
+            }
+            $mapImage = $upload['public_id'];
         }
 
-        $space = RentalSpace::create([
-            'space_code' => $spaceCode,
-            'space_type' => $request->space_type,
-            'name' => $request->name,
-            'size_sqm' => $request->size_sqm,
-            'description' => $request->description,
-            'map_image' => $mapImage,
-            'base_rental_rate' => $request->base_rental_rate,
-            'status' => 'available',
-        ]);
+        try {
+            $space = RentalSpace::create([
+                'space_code' => $spaceCode,
+                'space_type' => $request->space_type,
+                'name' => $request->name,
+                'size_sqm' => $request->size_sqm,
+                'description' => $request->description,
+                'map_image' => $mapImage,
+                'base_rental_rate' => $request->base_rental_rate,
+                'status' => 'available',
+            ]);
+        } catch (Throwable $error) {
+            if ($mapImage) {
+                $this->deleteMapImage($mapImage);
+            }
+
+            throw $error;
+        }
 
         AuditLog::log('create', 'RentalSpace', $space->id, "Created rental space: {$space->name}", null, $space->toArray());
+        $this->withMapImageUrl($space);
 
         return response()->json([
             'success' => true,
@@ -173,6 +253,7 @@ class RentalSpaceController extends Controller
             'activeContract.tenant.user',
             'currentTenant'
         ])->findOrFail($id);
+        $this->withMapImageUrl($space);
 
         AuditLog::log('view', 'RentalSpace', $space->id, "Viewed rental space: {$space->name}");
 
@@ -194,8 +275,8 @@ class RentalSpaceController extends Controller
             'size_sqm' => 'sometimes|numeric|min:0',
             'description' => 'sometimes|string',
             'base_rental_rate' => 'sometimes|numeric|min:0',
-            'status' => 'sometimes|in:available,occupied,maintenance',
-            'map_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'status' => 'sometimes|in:available,occupied,maintenance,inactive',
+            'map_image' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp|max:10240',
         ]);
 
         if ($validator->fails()) {
@@ -207,18 +288,37 @@ class RentalSpaceController extends Controller
 
         $oldValues = $space->toArray();
 
-        // Handle map image upload
+        $newMapImage = null;
         if ($request->hasFile('map_image')) {
-            // Delete old image
-            if ($space->map_image) {
-                Storage::disk('public')->delete($space->map_image);
+            $upload = $this->uploadMapImage($request->file('map_image'));
+            if (!$upload['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Rental space image upload failed. Check the Cloudinary configuration and try again.',
+                ], 502);
             }
-            $space->map_image = $request->file('map_image')->store('rental_spaces', 'public');
+            $newMapImage = $upload['public_id'];
         }
 
-        $space->fill($request->except('map_image'))->save();
+        $oldMapImage = $space->map_image;
+        try {
+            if ($newMapImage) {
+                $space->map_image = $newMapImage;
+            }
+            $space->fill($request->except('map_image'))->save();
+        } catch (Throwable $error) {
+            if ($newMapImage) {
+                $this->deleteMapImage($newMapImage);
+            }
+
+            throw $error;
+        }
+        if ($newMapImage) {
+            $this->deleteMapImage($oldMapImage);
+        }
 
         AuditLog::log('update', 'RentalSpace', $space->id, "Updated rental space: {$space->name}", $oldValues, $space->toArray());
+        $this->withMapImageUrl($space);
 
         return response()->json([
             'success' => true,
@@ -244,10 +344,7 @@ class RentalSpaceController extends Controller
 
         $spaceName = $space->name;
 
-        // Delete map image
-        if ($space->map_image) {
-            Storage::disk('public')->delete($space->map_image);
-        }
+        $this->deleteMapImage($space->map_image);
 
         AuditLog::log('delete', 'RentalSpace', $space->id, "Deleted rental space: {$spaceName}");
 
@@ -319,10 +416,7 @@ class RentalSpaceController extends Controller
     public function getStatistics()
     {
         // Count spaces without active/for_renewal contracts
-        $availableSpacesCount = RentalSpace::where('status', 'available')
-            ->whereDoesntHave('contracts', function ($q) {
-                $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
-            })->count();
+        $availableSpacesCount = RentalSpace::available()->count();
         
         // Count spaces with active contracts
         $occupiedSpacesCount = RentalSpace::where('status', 'occupied')
@@ -338,26 +432,17 @@ class RentalSpaceController extends Controller
             'by_type' => [
                 'food_stall' => [
                     'total' => RentalSpace::where('space_type', 'food_stall')->count(),
-                    'available' => RentalSpace::where('space_type', 'food_stall')
-                        ->whereDoesntHave('contracts', function ($q) {
-                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
-                        })->count(),
+                    'available' => RentalSpace::available()->where('space_type', 'food_stall')->count(),
                     'occupied' => RentalSpace::where('space_type', 'food_stall')->where('status', 'occupied')->count(),
                 ],
                 'market_hall' => [
                     'total' => RentalSpace::where('space_type', 'market_hall')->count(),
-                    'available' => RentalSpace::where('space_type', 'market_hall')
-                        ->whereDoesntHave('contracts', function ($q) {
-                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
-                        })->count(),
+                    'available' => RentalSpace::available()->where('space_type', 'market_hall')->count(),
                     'occupied' => RentalSpace::where('space_type', 'market_hall')->where('status', 'occupied')->count(),
                 ],
                 'banera_warehouse' => [
                     'total' => RentalSpace::where('space_type', 'banera_warehouse')->count(),
-                    'available' => RentalSpace::where('space_type', 'banera_warehouse')
-                        ->whereDoesntHave('contracts', function ($q) {
-                            $q->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed']);
-                        })->count(),
+                    'available' => RentalSpace::available()->where('space_type', 'banera_warehouse')->count(),
                     'occupied' => RentalSpace::where('space_type', 'banera_warehouse')->where('status', 'occupied')->count(),
                 ],
             ],

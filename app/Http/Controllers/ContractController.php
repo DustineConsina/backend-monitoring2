@@ -8,15 +8,67 @@ use App\Models\User;
 use App\Models\RentalSpace;
 use App\Models\AuditLog;
 use App\Models\Notification;
+use App\Services\CloudinaryService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\SvgWriter;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class ContractController extends Controller
 {
+    public function __construct(private CloudinaryService $cloudinary)
+    {
+    }
+
+    private function uploadContractFile(UploadedFile $file): array
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+        $publicId = 'contract-' . Str::uuid() . ($extension !== '' ? '.' . $extension : '');
+
+        return $this->cloudinary->uploadFile($file, 'contracts', $publicId, 'raw');
+    }
+
+    private function deleteContractFile(?string $filePath): void
+    {
+        if (!$filePath) {
+            return;
+        }
+
+        if (
+            str_starts_with($filePath, 'contracts/')
+            && !Storage::disk('public')->exists($filePath)
+        ) {
+            if (!$this->cloudinary->deleteFile($filePath, 'raw')) {
+                \Log::warning('Failed to delete contract file from Cloudinary', [
+                    'public_id' => $filePath,
+                ]);
+            }
+
+            return;
+        }
+
+        Storage::disk('public')->delete($filePath);
+    }
+
+    private function withContractFileUrl(Contract $contract): Contract
+    {
+        $filePath = (string) $contract->contract_file;
+        $isCloudinaryFile = str_starts_with($filePath, 'contracts/')
+            && !Storage::disk('public')->exists($filePath);
+        $contract->setAttribute(
+            'contract_file_url',
+            $isCloudinaryFile
+                ? $this->cloudinary->generateUrl($filePath, 0, 0, 'raw')
+                : ($filePath !== '' ? Storage::disk('public')->url($filePath) : null)
+        );
+
+        return $contract;
+    }
+
     /**
      * Generate a unique contract number for the current year.
      */
@@ -94,6 +146,7 @@ class ContractController extends Controller
         $query->orderBy($sortBy, $sortOrder);
 
         $contracts = $query->paginate($request->get('per_page', 15));
+        $contracts->getCollection()->transform(fn (Contract $contract) => $this->withContractFileUrl($contract));
 
         return response()->json([
             'success' => true,
@@ -218,7 +271,6 @@ class ContractController extends Controller
         ], [
             'start_date.after_or_equal' => 'The contract start date cannot be in the past.',
         ]);
-
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
@@ -239,7 +291,7 @@ class ContractController extends Controller
             ->exists();
 
         $status = strtolower((string) ($rentalSpace->status ?? ''));
-        $isAvailable = $rentalSpace && !in_array($status, ['occupied', 'maintenance', 'reserved', 'rented', 'terminated'], true)
+        $isAvailable = $rentalSpace && !in_array($status, ['occupied', 'maintenance', 'inactive', 'reserved', 'rented', 'terminated'], true)
             && $status !== 'unavailable'
             && !$hasActiveOrPendingContract;
 
@@ -270,7 +322,14 @@ class ContractController extends Controller
         // Handle file upload
         $contractFile = null;
         if ($request->hasFile('contract_file')) {
-            $contractFile = $request->file('contract_file')->store('contracts', 'public');
+            $upload = $this->uploadContractFile($request->file('contract_file'));
+            if (!$upload['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Contract file upload failed. Check the Cloudinary configuration and try again.',
+                ], 502);
+            }
+            $contractFile = $upload['public_id'];
         }
 
         // Create contract
@@ -302,6 +361,7 @@ class ContractController extends Controller
 
             \Log::info('Contract created successfully:', ['contract_id' => $contract->id, 'contract_number' => $contract->contract_number]);
         } catch (\Exception $e) {
+            $this->deleteContractFile($contractFile);
             \Log::error('Failed to create contract:', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
@@ -311,11 +371,12 @@ class ContractController extends Controller
         }
 
         AuditLog::log('create', 'Contract', $contract->id, "Created contract: {$contract->contract_number}", null, $contract->toArray());
+        $this->withContractFileUrl($contract);
 
         return response()->json([
             'success' => true,
             'message' => 'Contract created successfully',
-            'data' => $contract->load(['tenant.user', 'rentalSpace'])
+            'data' => $this->withContractFileUrl($contract->load(['tenant.user', 'rentalSpace']))
         ], 201);
     }
 
@@ -365,6 +426,8 @@ class ContractController extends Controller
             
             \Log::info('Payments loaded: ' . (isset($contract->payments) ? count($contract->payments) : 0) . ' payments');
             
+            $this->withContractFileUrl($contract);
+
             // Convert to array for better control of response structure
             $contractArray = $contract->toArray();
             
@@ -434,9 +497,14 @@ class ContractController extends Controller
         if (isset($data['start_date'])) {
             $data['start_date'] = Carbon::parse($data['start_date'])->format('Y-m-d');
         }
-        
-        if (isset($data['endDate'])) {
-            unset($data['endDate']); // Remove, we calculate it
+
+        if (isset($data['endDate']) && !isset($data['end_date'])) {
+            $data['end_date'] = $data['endDate'];
+        }
+        unset($data['endDate']);
+
+        if (isset($data['end_date'])) {
+            $data['end_date'] = Carbon::parse($data['end_date'])->format('Y-m-d');
         }
         
         if (isset($data['duration_months']) && !isset($data['durationMonths'])) {
@@ -513,6 +581,7 @@ class ContractController extends Controller
             'tenant_id' => 'sometimes|integer|exists:tenants,id',
             'rental_space_id' => 'sometimes|integer|exists:rental_spaces,id',
             'start_date' => 'sometimes|date',
+            'end_date' => 'sometimes|date|after:start_date',
             'duration_months' => 'sometimes|integer|min:1',
             'monthly_rental' => 'sometimes|numeric|min:0',
             'deposit_amount' => 'sometimes|numeric|min:0',
@@ -520,7 +589,6 @@ class ContractController extends Controller
             'terms_conditions' => 'sometimes|string',
             'status' => 'sometimes|in:active,expired,terminated,pending,for_renewal,renewed',
         ]);
-
         if ($validator->fails()) {
             \Log::warning("Validation failed: " . json_encode($validator->errors()));
             return response()->json([
@@ -530,21 +598,42 @@ class ContractController extends Controller
         }
 
         $oldValues = $contract->toArray();
+        $oldContractFile = $contract->contract_file;
+        $newContractFile = null;
+        $newFilePersisted = false;
 
-        // Handle file upload
         if ($request->hasFile('contract_file')) {
-            if ($contract->contract_file) {
-                Storage::disk('public')->delete($contract->contract_file);
+            $upload = $this->uploadContractFile($request->file('contract_file'));
+            if (!$upload['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Contract file upload failed. Check the Cloudinary configuration and try again.',
+                ], 502);
             }
-            $contract->contract_file = $request->file('contract_file')->store('contracts', 'public');
-            $data['contract_file'] = $contract->contract_file;
+            $newContractFile = $upload['public_id'];
+            $data['contract_file'] = $newContractFile;
         }
 
-        // Recalculate end date if start date or duration changed
-        if (isset($data['start_date']) || isset($data['duration_months'])) {
+        // Calculate an end date only when the client did not explicitly submit one.
+        // Otherwise, changing the start date would overwrite the selected end date
+        // with the old duration-based value.
+        if (!isset($data['end_date']) && (isset($data['start_date']) || isset($data['duration_months']))) {
             $startDate = isset($data['start_date']) ? Carbon::parse($data['start_date']) : $contract->start_date;
             $duration = isset($data['duration_months']) ? $data['duration_months'] : $contract->duration_months;
             $data['end_date'] = $startDate->copy()->addMonths($duration)->subDay();
+        }
+
+        if (isset($data['start_date']) && isset($data['end_date'])) {
+            $startDate = Carbon::parse($data['start_date']);
+            $endDate = Carbon::parse($data['end_date']);
+            $data['duration_months'] = max(1, $startDate->diffInMonths($endDate->copy()->addDay()));
+        }
+
+        if (isset($data['end_date']) && in_array(strtolower((string) $contract->status), ['active', 'for_renewal', 'expired'], true)) {
+            $endDate = Carbon::parse($data['end_date']);
+            $data['status'] = $endDate->lt(Carbon::now())
+                ? 'expired'
+                : ($endDate->lte(Carbon::now()->addMonths(2)) ? 'for_renewal' : 'active');
         }
         
         // Also add tenant_id if not present (apiClient converts rentalSpaceId to rental_space_id)
@@ -575,6 +664,8 @@ class ContractController extends Controller
         try {
             // Execute update
             $result = Contract::whereId($id)->update($updateData);
+            $newFilePersisted = $newContractFile !== null;
+            RentalSpace::syncOccupancyStatuses();
             
             \Log::info("UPDATE EXECUTED - Rows affected: {$result}");
             
@@ -584,11 +675,15 @@ class ContractController extends Controller
             
             // Reload fresh contract from database
             $contract = Contract::with(['tenant.user', 'rentalSpace', 'payments'])->findOrFail($id);
+            $this->withContractFileUrl($contract);
             
             \Log::info("RESPONSE - monthly_rental: {$contract->monthly_rental}");
             \Log::info("=" . str_repeat("=", 50));
             
             AuditLog::log('update', 'Contract', $contract->id, "Updated contract: {$contract->contract_number}", $oldValues, $contract->toArray());
+            if ($newContractFile) {
+                $this->deleteContractFile($oldContractFile);
+            }
             
             return response()->json([
                 'success' => true,
@@ -596,6 +691,9 @@ class ContractController extends Controller
                 'data' => $contract
             ]);
         } catch (\Exception $e) {
+            if ($newContractFile && !$newFilePersisted) {
+                $this->deleteContractFile($newContractFile);
+            }
             \Log::error("UPDATE ERROR: " . $e->getMessage());
             \Log::error("Trace: " . $e->getTraceAsString());
             return response()->json([
@@ -608,16 +706,31 @@ class ContractController extends Controller
     /**
      * Activate contract
      */
-    public function activate($id)
+    public function activate(Request $request, $id)
     {
         try {
             $contract = Contract::with('rentalSpace')->findOrFail($id);
+
+            if (strtolower((string) optional($contract->rentalSpace)->status) === 'inactive') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot activate a contract for an inactive rental space.'
+                ], 422);
+            }
+
+            if (strtolower((string) $contract->status) === 'terminated'
+                && strtolower((string) optional($request->user())->role) !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only administrators can resume terminated contracts.'
+                ], 403);
+            }
 
             \Log::info("=== ACTIVATE CONTRACT {$id} ===");
             \Log::info("Contract ID: {$contract->id}, Rental Space ID: {$contract->rental_space_id}, Status: {$contract->status}");
 
             // Allow activation only for pending contracts (not active, for_renewal, expired, terminated)
-            $inactiveStatuses = ['active', 'for_renewal', 'expired', 'terminated', 'renewed'];
+            $inactiveStatuses = ['active', 'for_renewal', 'expired', 'renewed'];
             if (in_array(strtolower($contract->status), array_map('strtolower', $inactiveStatuses))) {
                 return response()->json([
                     'success' => false,
@@ -735,14 +848,17 @@ class ContractController extends Controller
             
             // Try Eloquent update first
             if ($contract->rentalSpace) {
-                $contract->rentalSpace->status = 'available';
-                $contract->rentalSpace->save();
-                \Log::info("Eloquent update: Rental space {$contract->rental_space_id} status changed to 'available'");
+                if (strtolower((string) $contract->rentalSpace->status) !== 'inactive') {
+                    $contract->rentalSpace->status = 'available';
+                    $contract->rentalSpace->save();
+                    \Log::info("Eloquent update: Rental space {$contract->rental_space_id} status changed to 'available'");
+                }
             }
             
             // Also do a direct database update to be sure
             $updated = \DB::table('rental_spaces')
                 ->where('id', $contract->rental_space_id)
+                ->where('status', '!=', 'inactive')
                 ->update(['status' => 'available']);
             
             \Log::info("Direct DB update result: " . ($updated ? "Success ({$updated} rows)" : "No rows updated"));
@@ -794,14 +910,18 @@ class ContractController extends Controller
                 ->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed'])
                 ->exists();
 
-            if (!$hasOtherActiveContract && $contract->rentalSpace) {
+            if (
+                !$hasOtherActiveContract
+                && $contract->rentalSpace
+                && strtolower((string) $contract->rentalSpace->status) !== 'inactive'
+            ) {
                 $contract->rentalSpace->update(['status' => 'available']);
             }
         }
 
         // Delete contract file
         if ($contract->contract_file) {
-            Storage::disk('public')->delete($contract->contract_file);
+            $this->deleteContractFile($contract->contract_file);
         }
 
         AuditLog::log('delete', 'Contract', $contract->id, "Deleted contract: {$contractNumber}");
@@ -943,6 +1063,12 @@ class ContractController extends Controller
                 'rentalSpace'
             ])->findOrFail($id);
 
+            $user = auth()->user();
+            if ($user && strtolower((string) $user->role) === 'tenant'
+                && (int) $contract->tenant_id !== (int) $user->tenant?->id) {
+                return response()->json(['success' => false, 'message' => 'You may only view your own contract.'], 403);
+            }
+
             \Log::info('Contract found', [
                 'id' => $contract->id,
                 'has_tenant' => !is_null($contract->tenant),
@@ -995,6 +1121,12 @@ class ContractController extends Controller
     {
         try {
             $contract = Contract::with(['tenant.user', 'rentalSpace'])->findOrFail($id);
+
+            $user = auth()->user();
+            if ($user && strtolower((string) $user->role) === 'tenant'
+                && (int) $contract->tenant_id !== (int) $user->tenant?->id) {
+                return response()->json(['success' => false, 'message' => 'You may only download your own contract.'], 403);
+            }
 
             // Prepare data for the lease document
             $data = [

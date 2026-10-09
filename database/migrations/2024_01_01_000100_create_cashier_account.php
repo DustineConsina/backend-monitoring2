@@ -18,7 +18,7 @@ return new class extends Migration
         
         if (!$cashierExists) {
             User::create([
-                'name' => 'Cashier User',
+                'name' => 'Keanalyn Buiza',
                 'email' => 'cashier@pfda.gov.ph',
                 'password' => Hash::make('password123'),
                 'role' => 'cashier',

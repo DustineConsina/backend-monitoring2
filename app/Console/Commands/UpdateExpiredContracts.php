@@ -58,8 +58,10 @@ class UpdateExpiredContracts extends Command
 
             // Update rental space status to available
             $rentalSpace = $contract->rentalSpace;
-            $rentalSpace->status = 'available';
-            $rentalSpace->save();
+            if ($rentalSpace && strtolower((string) $rentalSpace->status) !== 'inactive') {
+                $rentalSpace->status = 'available';
+                $rentalSpace->save();
+            }
 
             $this->info("Contract {$contract->contract_number} marked as expired");
             $expiredCount++;
@@ -76,8 +78,10 @@ class UpdateExpiredContracts extends Command
 
             // Update rental space status to available
             $rentalSpace = $contract->rentalSpace;
-            $rentalSpace->status = 'available';
-            $rentalSpace->save();
+            if ($rentalSpace && strtolower((string) $rentalSpace->status) !== 'inactive') {
+                $rentalSpace->status = 'available';
+                $rentalSpace->save();
+            }
 
             $this->info("Renewal contract {$contract->contract_number} marked as expired");
             $expiredCount++;

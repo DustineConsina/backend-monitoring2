@@ -16,26 +16,23 @@ class CorsMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         // Get allowed origins
-        $allowedOrigins = [
-            'https://contract-monitoring-frontend.vercel.app',
-            'https://contract-monitoring-frontend-b8t2.vercel.app',
-            'https://contractmonitoringbackend-production.up.railway.app',
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            'http://localhost',
-            'http://127.0.0.1',
-        ];
+        $allowedOrigins = array_filter([
+            rtrim((string) config('app.frontend_url'), '/'),
+            ...(!app()->environment('production') ? [
+                'http://localhost:3000',
+                'http://127.0.0.1:3000',
+                'http://localhost',
+                'http://127.0.0.1',
+            ] : []),
+        ]);
 
         $origin = $request->header('origin');
-
-        // Allow any private LAN origin (192.168.x.x, 10.x.x.x, 172.16-31.x.x) on any port
         $isLanOrigin = false;
-        if ($origin) {
+        if ($origin && !app()->environment('production')) {
             $host = parse_url($origin, PHP_URL_HOST) ?? '';
             $isLanOrigin = preg_match('/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/', $host) === 1;
         }
-
-        $isAllowed = $origin && (in_array($origin, $allowedOrigins) || $isLanOrigin);
+        $isAllowed = $origin && (in_array($origin, $allowedOrigins, true) || $isLanOrigin);
 
         // Always allow requests from allowed origins
         if ($isAllowed) {

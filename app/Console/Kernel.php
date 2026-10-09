@@ -22,6 +22,11 @@ class Kernel extends ConsoleKernel
                  ->dailyAt('07:00')
                  ->description('Update overdue payment statuses');
 
+        // Send overdue SMS reminders after payment statuses are updated.
+        $schedule->command('payments:send-reminders')
+             ->dailyAt('08:00')
+             ->description('Send payment reminders, including Semaphore SMS');
+
         // Run demand letter generation daily at 8 AM
         $schedule->command('payments:generate-demand-letters')
                  ->dailyAt('08:00')
@@ -31,6 +36,11 @@ class Kernel extends ConsoleKernel
         $schedule->command('contracts:send-renewal-notifications')
                  ->dailyAt('09:00')
                  ->description('Send renewal notifications for contracts expiring soon');
+
+        $schedule->command('sms:refresh-statuses')
+                 ->everyFifteenMinutes()
+                 ->withoutOverlapping()
+                 ->description('Update pending SMS delivery statuses from Semaphore');
     }
 
     /**

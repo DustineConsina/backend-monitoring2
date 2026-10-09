@@ -37,7 +37,6 @@ This replaces manual paper-based processes with a centralized digital solution f
 ### 1. Install Dependencies
 ```bash
 composer install
-composer require simplesoftwareio/simple-qrcode barryvdh/laravel-dompdf
 ```
 
 ### 2. Configure Environment
@@ -116,8 +115,42 @@ Setup scheduler:
 * * * * * cd /path-to-project && php artisan schedule:run >> /dev/null 2>&1
 
 # Windows/Development
-php artisan schedule:work
+powershell -ExecutionPolicy Bypass -File .\scripts\install-laravel-scheduler.ps1
 ```
+
+The Windows scheduled task runs as the current user while that user is logged in.
+
+### Vercel, Render, and Aiven deployment
+
+The frontend is deployed to Vercel and the Laravel API to Render using the
+included `render.yaml` and `Dockerfile`. Create a MySQL service on Aiven and
+configure the Render service with its host, port, database, username, and
+password. Upload Aiven's CA certificate as a Render secret file, then set
+`MYSQL_ATTR_SSL_CA` to its mounted path (for example, `/etc/secrets/aiven-ca.pem`).
+
+Set `APP_KEY` to a newly generated Laravel key, `APP_URL` to the public Render
+service URL, and `FRONTEND_URL` to the Vercel production origin. Set
+`NEXT_PUBLIC_API_URL` in Vercel to `https://<render-service>.onrender.com/api`.
+Configure the Render `CLOUDINARY_URL` variable for media storage. If email
+delivery is enabled, also configure the SMTP values declared in `render.yaml`.
+The Render entrypoint validates required settings, runs migrations, and starts
+Apache; it does not seed or overwrite production data.
+
+Before switching existing data to Render, run
+`php artisan assets:migrate-local-to-cloudinary --dry-run` on the current backend
+with its database and local uploaded files available. Review the output, then run
+`php artisan assets:migrate-local-to-cloudinary` from that backend configured to
+use the Aiven database and Cloudinary credentials. The command keeps local
+originals and updates database paths only after each successful Cloudinary
+upload.
+
+### Cloudinary uploads
+
+Rental-space photos, tenant profile pictures, generated tenant QR codes, and
+uploaded contract documents use Cloudinary. Configure either `CLOUDINARY_URL`
+or `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
+Older local image and document paths continue to resolve when their files remain
+available on the original backend.
 
 ---
 
@@ -139,7 +172,7 @@ Detailed documentation is available in [DOCUMENTATION.md](DOCUMENTATION.md), inc
 - **Framework:** Laravel 11.x
 - **Authentication:** Laravel Sanctum
 - **Database:** MySQL 8.0+
-- **QR Codes:** SimpleSoftwareIO/simple-qrcode
+- **QR Codes:** endroid/qr-code
 - **PDF Generation:** barryvdh/laravel-dompdf
 - **Testing:** Pest PHP
 

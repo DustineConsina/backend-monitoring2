@@ -23,7 +23,11 @@ class Contract extends Model
                     ->whereIn('status', ['active', 'for_renewal', 'pending', 'renewed'])
                     ->exists();
 
-                if (!$hasOtherActiveContract && $contract->rentalSpace) {
+                if (
+                    !$hasOtherActiveContract
+                    && $contract->rentalSpace
+                    && strtolower((string) $contract->rentalSpace->status) !== 'inactive'
+                ) {
                     $contract->rentalSpace->update(['status' => 'available']);
                 }
             }
@@ -192,7 +196,7 @@ class Contract extends Model
                     ->whereIn('status', ['active', 'for_renewal'])
                     ->exists();
 
-                if (!$hasOtherActive) {
+                if (!$hasOtherActive && strtolower((string) $contract->rentalSpace->status) !== 'inactive') {
                     $contract->rentalSpace->update(['status' => 'available']);
                 }
             }

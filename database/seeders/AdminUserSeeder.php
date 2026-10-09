@@ -17,19 +17,19 @@ class AdminUserSeeder extends Seeder
         $users = [
             [
                 'email' => 'admin@pfda.gov.ph',
-                'name' => 'Admin User',
+                'name' => 'Dustine Consina',
                 'role' => 'admin',
                 'phone' => '09123456789',
             ],
             [
                 'email' => 'staff@pfda.gov.ph',
-                'name' => 'Staff User',
+                'name' => 'Jenny Rose Formanes',
                 'role' => 'staff',
                 'phone' => '09123456790',
             ],
             [
                 'email' => 'cashier@pfda.gov.ph',
-                'name' => 'Cashier User',
+                'name' => 'Keanalyn Buiza',
                 'role' => 'cashier',
                 'phone' => '09123456791',
             ],
@@ -37,17 +37,20 @@ class AdminUserSeeder extends Seeder
 
         foreach ($users as $userData) {
             try {
-                User::firstOrCreate(
-                    ['email' => $userData['email']],
-                    [
-                        'name' => $userData['name'],
-                        'password' => Hash::make('password123'),
-                        'role' => $userData['role'],
-                        'phone' => $userData['phone'],
-                        'address' => 'PFDA Office, Bulan, Sorsogon',
-                        'status' => 'active',
-                    ]
-                );
+                $user = User::firstOrNew(['email' => $userData['email']]);
+                $isNewUser = !$user->exists;
+
+                $user->name = $userData['name'];
+                $user->role = $userData['role'];
+                $user->phone = $userData['phone'];
+                $user->address = 'PFDA Office, Bulan, Sorsogon';
+                $user->status = 'active';
+
+                if ($isNewUser) {
+                    $user->password = Hash::make('password123');
+                }
+
+                $user->save();
                 $this->command->line("✓ {$userData['email']} ({$userData['role']}) ready");
             } catch (QueryException $e) {
                 if (strpos($e->getMessage(), 'Duplicate entry') !== false) {
@@ -76,9 +79,5 @@ class AdminUserSeeder extends Seeder
         }
 
         $this->command->info('✓ Admin, staff, and cashier users setup complete');
-        $this->command->info('Credentials:');
-        $this->command->info('  Admin: admin@pfda.gov.ph / password123');
-        $this->command->info('  Staff: staff@pfda.gov.ph / password123');
-        $this->command->info('  Cashier: cashier@pfda.gov.ph / password123');
     }
 }

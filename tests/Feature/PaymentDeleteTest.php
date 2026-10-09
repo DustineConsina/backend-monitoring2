@@ -77,6 +77,7 @@ beforeEach(function () {
         $table->text('remarks')->nullable();
         $table->string('status')->default('pending');
         $table->timestamps();
+        $table->softDeletes();
     });
 
     Schema::create('audit_logs', function ($table) {
@@ -94,7 +95,7 @@ beforeEach(function () {
     });
 });
 
-it('deletes a payment row from the database', function () {
+it('archives a payment without permanently deleting it', function () {
     $user = User::create([
         'name' => 'Cashier',
         'email' => 'cashier@example.com',
@@ -149,5 +150,6 @@ it('deletes a payment row from the database', function () {
     $response = $controller->destroy($payment->id);
 
     expect($response->getData(true)['success'])->toBeTrue()
-        ->and(Payment::find($payment->id))->toBeNull();
+        ->and(Payment::find($payment->id))->toBeNull()
+        ->and(Payment::withTrashed()->find($payment->id))->not->toBeNull();
 });

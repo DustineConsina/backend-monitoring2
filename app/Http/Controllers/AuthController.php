@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Models\Tenant;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -89,11 +88,20 @@ class AuthController extends Controller
             }
 
             \Illuminate\Support\Facades\Log::info('Attempting authentication', ['email' => $request->email]);
-            
-            $authenticated = Auth::attempt($request->only('email', 'password'));
-            \Illuminate\Support\Facades\Log::info('Authentication result', ['authenticated' => $authenticated]);
-            
-            if (!$authenticated) {
+
+            $user = User::with('tenant')->where('email', $request->email)->first();
+            $passwordMatches = $user && Hash::check((string) $request->password, (string) $user->password);
+
+            // Older tenant records may have a valid QR-access hash while their
+            // separate portal login password was never initialized correctly.
+            // Accept that existing hash as a login credential so tenants do not
+            // have to reset a QR password that already appears in tenant details.
+            if (!$passwordMatches && $user && strtolower((string) $user->role) === 'tenant') {
+                $passwordMatches = $user->tenant?->qr_password_hash
+                    && Hash::check((string) $request->password, $user->tenant->qr_password_hash);
+            }
+
+            if (!$user || !$passwordMatches) {
                 \Illuminate\Support\Facades\Log::warning('Invalid credentials', ['email' => $request->email]);
                 return response()->json([
                     'success' => false,
@@ -101,7 +109,6 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            $user = User::where('email', $request->email)->firstOrFail();
             \Illuminate\Support\Facades\Log::info('User found', ['user_id' => $user->id, 'status' => $user->status]);
 
             if ($user->status !== 'active') {
@@ -109,6 +116,13 @@ class AuthController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Your account is inactive. Please contact the administrator.'
+                ], 403);
+            }
+
+            if (strtolower((string) $user->role) === 'tenant' && (!$user->tenant || strtolower((string) $user->tenant->status) !== 'active')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tenant account not found or inactive. Please contact the administrator.',
                 ], 403);
             }
 

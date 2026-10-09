@@ -11,6 +11,7 @@ class Tenant extends Model
 
     protected $hidden = [
         'qr_password_hash',
+        'qr_access_code',
     ];
 
     protected $fillable = [
@@ -71,6 +72,11 @@ class Tenant extends Model
     public function overduePayments()
     {
         return $this->hasMany(Payment::class)->where('status', 'overdue');
+    }
+
+    public function complaints()
+    {
+        return $this->hasMany(Complaint::class);
     }
 
     /**

@@ -114,7 +114,7 @@ class RentalSpace extends Model
 
         self::whereHas('contracts', function ($query) use ($occupiedContractStatuses) {
             $query->whereIn('status', $occupiedContractStatuses);
-        })->whereNotIn('status', ['occupied', 'maintenance', 'reserved', 'rented', 'terminated', 'unavailable'])
+        })->whereNotIn('status', ['occupied', 'maintenance', 'inactive', 'reserved', 'rented', 'terminated', 'unavailable'])
           ->update(['status' => 'occupied']);
 
         self::where(function ($query) {

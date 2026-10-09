@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ContractController;
 use App\Models\Contract;
+use App\Models\Payment;
 use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -223,6 +224,7 @@ it('hard-deletes the contract and removes related payments from the database', f
         $table->text('remarks')->nullable();
         $table->string('status')->default('pending');
         $table->timestamps();
+        $table->softDeletes();
     });
 
     DB::table('payments')->insert([
@@ -251,7 +253,8 @@ it('hard-deletes the contract and removes related payments from the database', f
 
     expect($response->getData(true)['success'])->toBeTrue()
         ->and(Contract::find($contract->id))->toBeNull()
-        ->and(DB::table('payments')->where('contract_id', $contract->id)->count())->toBe(0)
+        ->and(Payment::where('contract_id', $contract->id)->count())->toBe(0)
+        ->and(Payment::withTrashed()->where('contract_id', $contract->id)->count())->toBe(1)
         ->and(DB::table('rental_spaces')->where('id', $spaceId)->value('status'))->toBe('available');
 });
 

@@ -128,9 +128,11 @@ configure the Render service with its host, port, database, username, and
 password. Upload Aiven's CA certificate as a Render secret file, then set
 `MYSQL_ATTR_SSL_CA` to its mounted path (for example, `/etc/secrets/aiven-ca.pem`).
 
-Set `APP_KEY` to a newly generated Laravel key, `APP_URL` to the public Render
-service URL, and `FRONTEND_URL` to the Vercel production origin. Set
-`NEXT_PUBLIC_API_URL` in Vercel to `https://<render-service>.onrender.com/api`.
+Set `APP_KEY` to a newly generated Laravel key. The blueprint sets `APP_URL` to
+`https://backend-monitoring2.onrender.com` and `FRONTEND_URL` to
+`https://frontend-monitoring2.vercel.app`. The frontend uses
+`https://backend-monitoring2.onrender.com/api` as its production API URL; set
+`NEXT_PUBLIC_API_URL` in Vercel only if you change the backend hostname.
 Configure the Render `CLOUDINARY_URL` variable for media storage. If email
 delivery is enabled, also configure the SMTP values declared in `render.yaml`.
 The Render entrypoint validates required settings, runs migrations, and starts

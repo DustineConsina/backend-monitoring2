@@ -13,9 +13,9 @@ services:
       - key: APP_KEY
         sync: false
       - key: APP_URL
-        sync: false
+        value: https://backend-monitoring2.onrender.com
       - key: FRONTEND_URL
-        sync: false
+        value: https://frontend-monitoring2.vercel.app
       - key: DB_CONNECTION
         value: mysql
       - key: DB_HOST

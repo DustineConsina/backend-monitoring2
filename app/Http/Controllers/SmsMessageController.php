@@ -6,6 +6,7 @@ use App\Models\SmsMessage;
 use App\Models\Tenant;
 use App\Services\SemaphoreSmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class SmsMessageController extends Controller
@@ -60,5 +61,29 @@ class SmsMessageController extends Controller
             'success' => true,
             'data' => $smsMessage->load('recipientUser.tenant'),
         ], 201);
+    }
+
+    public function refreshStatus($id, SemaphoreSmsService $smsService)
+    {
+        $smsMessage = SmsMessage::findOrFail($id);
+
+        try {
+            $smsService->refreshStatus($smsMessage);
+        } catch (\Throwable $error) {
+            Log::warning('Failed to refresh SMS delivery status.', [
+                'sms_message_id' => $smsMessage->id,
+                'error' => $error->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to refresh this SMS status. Check the provider configuration and try again.',
+            ], 502);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $smsMessage->fresh()->load('recipientUser.tenant', 'payment', 'contract'),
+        ]);
     }
 }

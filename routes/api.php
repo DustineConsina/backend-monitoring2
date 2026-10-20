@@ -86,6 +86,7 @@ Route::middleware(['auth:sanctum', 'tenant.access'])->group(function () {
         Route::post('/tenants/{id}/upload-picture', [TenantController::class, 'uploadPicture']);
         Route::get('/sms-messages', [SmsMessageController::class, 'index']);
         Route::post('/sms-messages', [SmsMessageController::class, 'store']);
+        Route::post('/sms-messages/{id}/refresh-status', [SmsMessageController::class, 'refreshStatus']);
     });
     Route::middleware('role:admin')->post('/tenants', [TenantController::class, 'store']);
     Route::middleware('role:admin')->post('/tenants/{id}/reset-password', [TenantController::class, 'resetPassword']);

@@ -261,15 +261,13 @@ class ContractController extends Controller
         $validator = Validator::make($data, [
             'tenant_id' => 'required|exists:tenants,id',
             'rental_space_id' => 'required|exists:rental_spaces,id',
-            'start_date' => 'required|date|after_or_equal:today',
+            'start_date' => 'required|date',
             'duration_months' => 'required|integer|min:1',
             'monthly_rental' => 'required|numeric|min:0',
             'deposit_amount' => 'nullable|numeric|min:0',
             'interest_rate' => 'nullable|numeric|min:0|max:100',
             'terms_conditions' => 'nullable|string',
             'contract_file' => 'nullable|file|mimes:pdf,doc,docx|max:51200',
-        ], [
-            'start_date.after_or_equal' => 'The contract start date cannot be in the past.',
         ]);
         if ($validator->fails()) {
             return response()->json([

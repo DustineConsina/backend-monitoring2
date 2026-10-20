@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\PaymentTransaction;
+use App\Models\SmsMessage;
 use App\Services\OverduePaymentSmsNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -619,6 +620,49 @@ class PaymentController extends Controller
             'success' => true,
             'message' => 'Payment status updated successfully',
             'data' => $payment
+        ]);
+    }
+
+    public function retryOverdueSms($id)
+    {
+        $payment = Payment::findOrFail($id);
+        $lastAttempt = SmsMessage::where('payment_id', $payment->id)->latest()->first();
+
+        if (
+            $payment->status !== 'overdue' ||
+            (float) $payment->balance <= 0 ||
+            !$lastAttempt ||
+            strtolower((string) $lastAttempt->status) !== 'failed' ||
+            trim((string) $lastAttempt->error_message) !== 'SEMAPHORE_API_KEY is not configured.'
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This payment does not have a retryable missing-API-key SMS failure.',
+            ], 422);
+        }
+
+        try {
+            $messageId = app(OverduePaymentSmsNotifier::class)
+                ->retryConfigurationFailure($payment, (int) $request->user()->id);
+        } catch (\Throwable $error) {
+            \Log::warning('Manual overdue SMS retry failed.', [
+                'payment_id' => $payment->id,
+                'user_id' => $request->user()->id,
+                'error' => $error->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The SMS retry failed. Check the SMS history for the recorded provider result.',
+            ], 502);
+        }
+
+        AuditLog::log('update', 'Payment', $payment->id, "Retried overdue SMS for payment: {$payment->payment_number}");
+
+        return response()->json([
+            'success' => true,
+            'message' => 'The overdue SMS retry was submitted.',
+            'provider_message_id' => $messageId,
         ]);
     }
 

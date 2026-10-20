@@ -123,6 +123,7 @@ Route::middleware(['auth:sanctum', 'tenant.access'])->group(function () {
     Route::post('/payments/{id}/record', [PaymentController::class, 'recordPayment']);
     Route::patch('/payments/{id}/status', [PaymentController::class, 'updateStatus']);
     Route::post('/payments/calculate-overdue', [PaymentController::class, 'calculateOverduePayments']);
+    Route::middleware('role:admin,staff')->post('/payments/{id}/retry-overdue-sms', [PaymentController::class, 'retryOverdueSms']);
     Route::get('/payable-contracts', [PaymentController::class, 'getPayableContracts']);
     Route::get('/tenants/{id}/payment-summary', [PaymentController::class, 'getTenantPaymentSummary']);
     Route::get('/tenants/{id}/payment-history', [PaymentController::class, 'getPaymentHistory']);

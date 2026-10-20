@@ -163,3 +163,62 @@ it('sends an overdue payment SMS immediately when a payment is marked overdue', 
 
     app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
 });
+
+it('retries an overdue SMS only after its API key configuration failure', function () {
+    \App\Models\SmsMessage::create([
+        'payment_id' => 124,
+        'phone_number' => '09171234567',
+        'message' => 'Previous overdue reminder',
+        'provider' => 'semaphore',
+        'status' => 'failed',
+        'error_message' => 'SEMAPHORE_API_KEY is not configured.',
+    ]);
+
+    $payment = new Payment([
+        'payment_number' => 'PAY-2026-000002',
+        'billing_period_start' => '2026-09-01',
+        'due_date' => '2026-10-01',
+        'balance' => 1200,
+        'status' => 'overdue',
+    ]);
+    $payment->id = 124;
+    $tenant = new Tenant([
+        'contact_number' => '09171234567',
+        'contact_person' => 'Tenant Contact',
+    ]);
+    $tenant->setRelation('user', new User(['name' => 'Tenant User']));
+    $payment->setRelation('tenant', $tenant);
+
+    $smsService = Mockery::mock(SemaphoreSmsService::class);
+    $smsService->shouldReceive('send')
+        ->once()
+        ->with('09171234567', Mockery::type('string'), 42, 124)
+        ->andReturn('message-124');
+    app()->instance(SemaphoreSmsService::class, $smsService);
+
+    expect(app(OverduePaymentSmsNotifier::class)->retryConfigurationFailure($payment, 42))
+        ->toBe('message-124');
+});
+
+it('does not retry an overdue SMS for unrelated or ambiguous failures', function () {
+    \App\Models\SmsMessage::create([
+        'payment_id' => 125,
+        'phone_number' => '09171234567',
+        'message' => 'Previous overdue reminder',
+        'provider' => 'semaphore',
+        'status' => 'unknown',
+        'error_message' => 'Semaphore delivery status is unknown.',
+    ]);
+
+    $payment = new Payment([
+        'payment_number' => 'PAY-2026-000003',
+        'billing_period_start' => '2026-09-01',
+        'due_date' => '2026-10-01',
+        'balance' => 1200,
+        'status' => 'overdue',
+    ]);
+    $payment->id = 125;
+
+    expect(fn () => app(OverduePaymentSmsNotifier::class)->retryConfigurationFailure($payment, 42))
+        ->toThrow(RuntimeException::class, 'missing-API-key SMS failure');
+});

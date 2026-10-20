@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Payment;
+use App\Services\OverduePaymentSmsNotifier;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -41,6 +42,7 @@ class UpdateOverdueStatus extends Command
             $payment->update([
                 'status' => 'overdue',
             ]);
+            app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
             
             // Log audit trail
             \Log::info("Payment {$payment->payment_number} marked as overdue (5 days after due date). Amount due (with 3% interest): {$payment->amount_due}. Balance: {$payment->balance}");

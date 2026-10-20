@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Payment;
 use App\Models\PaymentTransaction;
+use App\Services\OverduePaymentSmsNotifier;
 use App\Models\Contract;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -211,6 +212,7 @@ class CashierController extends Controller
             });
 
             [$payment, $transaction] = $result;
+            app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
 
             return response()->json([
                 'success' => true,

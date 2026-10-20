@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Notification;
 use App\Models\User;
 use App\Models\PaymentTransaction;
+use App\Services\OverduePaymentSmsNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -329,6 +330,7 @@ class PaymentController extends Controller
         if ($isOverdue) {
             $this->ensureDemandLetter($payment);
             $this->notifyPaymentEvent($payment, 'payment_overdue');
+            app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
         } elseif ($isPaid) {
             $this->notifyPaymentEvent($payment, 'payment_paid');
         } else {
@@ -478,6 +480,9 @@ class PaymentController extends Controller
         if ($payment->isOverdue()) {
             $this->ensureDemandLetter($payment);
             $this->notifyPaymentEvent($payment, 'payment_overdue');
+            if ($currentStatus === 'overdue' && $oldStatus !== 'overdue') {
+                app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
+            }
         } elseif ($currentStatus === 'paid' && $oldStatus !== 'paid') {
             $this->notifyPaymentEvent($payment, 'payment_paid');
         } elseif ($currentStatus === 'pending' && $oldStatus !== 'pending') {
@@ -603,6 +608,9 @@ class PaymentController extends Controller
         } elseif ($payment->isOverdue() && $payment->balance > 0) {
             $this->ensureDemandLetter($payment);
             $this->notifyPaymentEvent($payment, 'payment_overdue');
+            if ($payment->status === 'overdue' && $oldStatus !== 'overdue') {
+                app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
+            }
         }
 
         AuditLog::log('update', 'Payment', $payment->id, "Updated payment status from {$oldStatus} to {$request->status}", ['status' => $oldStatus], ['status' => $request->status]);
@@ -659,6 +667,7 @@ class PaymentController extends Controller
             }
             if ($payment->balance > 0) {
                 $this->ensureDemandLetter($payment);
+                app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
             }
             $this->notifyPaymentEvent($payment, 'payment_overdue');
             $count++;
@@ -1084,4 +1093,3 @@ class PaymentController extends Controller
         }
     }
 }
-

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Payment;
 use App\Models\Contract;
+use App\Services\OverduePaymentSmsNotifier;
 use Carbon\Carbon;
 
 class CalculateOverdueInterest extends Command
@@ -38,6 +39,7 @@ class CalculateOverdueInterest extends Command
         $count = 0;
         foreach ($overduePayments as $payment) {
             $payment->calculateInterest();
+            app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
             $count++;
         }
 

@@ -151,8 +151,13 @@ class Payment extends Model
         })->get();
 
         foreach ($payments as $payment) {
+            $previousStatus = $payment->status;
             $payment->refreshStatusFromDueDate();
             $payment->save();
+
+            if ($payment->status === 'overdue' && $previousStatus !== 'overdue') {
+                app(\App\Services\OverduePaymentSmsNotifier::class)->sendIfDue($payment);
+            }
         }
     }
 

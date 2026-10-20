@@ -1,6 +1,10 @@
 <?php
 
 use App\Services\SemaphoreSmsService;
+use App\Services\OverduePaymentSmsNotifier;
+use App\Models\Payment;
+use App\Models\Tenant;
+use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
@@ -131,4 +135,31 @@ it('refreshes a pending SMS to failed and saves the provider reason', function (
         'status' => 'Failed',
         'error_message' => 'Recipient number is not registered.',
     ]);
+});
+
+it('sends an overdue payment SMS immediately when a payment is marked overdue', function () {
+    $payment = new Payment([
+        'payment_number' => 'PAY-2026-000001',
+        'billing_period_start' => '2026-09-01',
+        'due_date' => '2026-10-01',
+        'balance' => 1200,
+        'status' => 'overdue',
+    ]);
+    $payment->id = 123;
+
+    $tenant = new Tenant([
+        'contact_number' => '09171234567',
+        'contact_person' => 'Tenant Contact',
+    ]);
+    $tenant->setRelation('user', new User(['name' => 'Tenant User']));
+    $payment->setRelation('tenant', $tenant);
+
+    $smsService = Mockery::mock(SemaphoreSmsService::class);
+    $smsService->shouldReceive('send')
+        ->once()
+        ->with('09171234567', Mockery::type('string'), null, 123)
+        ->andReturn('message-123');
+    app()->instance(SemaphoreSmsService::class, $smsService);
+
+    app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
 });

@@ -6,8 +6,7 @@ use Illuminate\Console\Command;
 use App\Models\Payment;
 use App\Models\Notification;
 use App\Mail\PaymentReminderMail;
-use App\Models\SmsMessage;
-use App\Services\SemaphoreSmsService;
+use App\Services\OverduePaymentSmsNotifier;
 use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
@@ -105,28 +104,7 @@ class SendPaymentReminders extends Command
 
             }
 
-            $lastSmsAttempt = SmsMessage::where('payment_id', $payment->id)->latest()->first();
-            $smsAttemptDue = !$lastSmsAttempt || $lastSmsAttempt->created_at->diffInDays(Carbon::now()) >= 7;
-            if ($smsAttemptDue) {
-                $phoneNumber = trim((string) ($payment->tenant->contact_number ?: $payment->tenant->user?->phone ?: ''));
-                try {
-                    $messageId = app(SemaphoreSmsService::class)->send(
-                        $phoneNumber,
-                        \App\Services\SmsMessageTemplates::overduePayment(
-                            (string) ($payment->tenant->contact_person ?: $payment->tenant->user?->name ?: $payment->tenant->business_name),
-                            (string) $payment->payment_number,
-                            (float) $payment->balance,
-                            $payment->billing_period_start->format('F Y'),
-                            $payment->due_date->format('F j, Y')
-                        ),
-                        null,
-                        (int) $payment->id
-                    );
-                    $this->line("  SMS accepted for payment {$payment->payment_number} (message {$messageId})");
-                } catch (\Throwable $e) {
-                    $this->error("Failed to send SMS for payment {$payment->payment_number}: " . $e->getMessage());
-                }
-            }
+            app(OverduePaymentSmsNotifier::class)->sendIfDue($payment);
         }
 
         $this->info("Sent {$upcomingCount} upcoming payment reminders");

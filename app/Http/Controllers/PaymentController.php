@@ -623,7 +623,7 @@ class PaymentController extends Controller
         ]);
     }
 
-    public function retryOverdueSms($id)
+    public function retryOverdueSms(Request $request, $id)
     {
         $payment = Payment::findOrFail($id);
         $lastAttempt = SmsMessage::where('payment_id', $payment->id)->latest()->first();

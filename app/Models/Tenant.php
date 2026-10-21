@@ -20,6 +20,8 @@ class Tenant extends Model
         'qr_password_hash',
         'qr_access_code',
         'business_name',
+        'email',
+        'address',
         'business_type',
         'business_permit_number',
         'business_address',

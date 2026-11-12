@@ -360,6 +360,71 @@ class TenantController extends Controller
     }
 
     /**
+     * Return the authenticated tenant's portal data and their contracts.
+     */
+    public function authenticatedTenantInfo(Request $request)
+    {
+        $tenant = $request->user()->tenant()
+            ->with([
+                'contracts' => function ($query) {
+                    $query->with(['rentalSpace', 'payments'])->latest();
+                },
+            ])
+            ->first();
+
+        if (!$tenant || strtolower((string) $tenant->status) !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant account not found or inactive.',
+            ], 403);
+        }
+
+        $contracts = $tenant->contracts->map(function ($contract) {
+            $space = $contract->rentalSpace;
+
+            return [
+                'id' => $contract->id,
+                'contract_number' => $contract->contract_number,
+                'status' => $contract->status,
+                'start_date' => $contract->start_date,
+                'end_date' => $contract->end_date,
+                'monthly_rental' => $contract->monthly_rental,
+                'rental_space' => $space ? [
+                    'id' => $space->id,
+                    'space_code' => $space->space_code,
+                    'space_type' => $space->space_type,
+                    'name' => $space->name,
+                    'size_sqm' => $space->size_sqm,
+                ] : null,
+                'payments' => $contract->payments->map(function ($payment) {
+                    return [
+                        'id' => $payment->id,
+                        'payment_number' => $payment->payment_number,
+                        'due_date' => $payment->due_date,
+                        'amount_due' => $payment->amount_due,
+                        'amount_paid' => $payment->amount_paid,
+                        'total_amount' => $payment->total_amount,
+                        'status' => $payment->status,
+                    ];
+                })->values(),
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $tenant->id,
+                'tenant_code' => $tenant->tenant_code,
+                'business_name' => $tenant->business_name,
+                'contact_person' => $tenant->contact_person,
+                'email' => $request->user()->email,
+                'status' => $tenant->status,
+                'contracts' => $contracts,
+            ],
+        ]);
+    }
+
+    /**
      * Update the specified tenant
      */
     public function update(Request $request, $id)

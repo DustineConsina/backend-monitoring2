@@ -6,7 +6,10 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\AuditLog;
 use App\Services\CloudinaryService;
+use App\Services\TenantQrToken;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Endroid\QrCode\QrCode;
@@ -47,6 +50,22 @@ class TenantController extends Controller
             ]);
             return null;
         }
+    }
+
+    private function resolveQrAccessCode(Tenant $tenant): ?string
+    {
+        $storedCode = $tenant->getRawOriginal('qr_access_code');
+        if (!is_string($storedCode) || $storedCode === '') {
+            return null;
+        }
+
+        try {
+            $code = Crypt::decryptString($storedCode);
+        } catch (DecryptException) {
+            $code = $storedCode;
+        }
+
+        return preg_match('/\A\d{8}\z/', $code) ? $code : null;
     }
 
     private function deleteCloudinaryOrLocalFile(?string $path, string $cloudinaryFolder): void
@@ -345,7 +364,7 @@ class TenantController extends Controller
         // Add full URLs for profile picture if it exists
         $tenantArray = $tenant->toArray();
         $tenantArray['profile_picture_path'] = $tenant->profile_picture;
-        $tenantArray['qr_access_code'] = $tenant->qr_access_code;
+        $tenantArray['qr_access_code'] = $this->resolveQrAccessCode($tenant);
         if ($tenant->profile_picture) {
             $url = $this->resolveProfilePictureUrl($tenant->profile_picture);
             $tenantArray['profile_picture_url'] = $url;
@@ -356,6 +375,23 @@ class TenantController extends Controller
         return response()->json([
             'success' => true,
             'data' => $tenantArray
+        ]);
+    }
+
+    public function resetPassword($id)
+    {
+        $tenant = Tenant::findOrFail($id);
+        $temporaryPassword = (string) random_int(10000000, 99999999);
+
+        $tenant->forceFill([
+            'qr_password_hash' => Hash::make($temporaryPassword),
+            'qr_access_code' => $temporaryPassword,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'temporaryPassword' => $temporaryPassword,
+            'message' => 'The tenant QR password has been reset.',
         ]);
     }
 
@@ -587,20 +623,32 @@ class TenantController extends Controller
     /**
      * Generate QR code for tenant
      */
-    public function generateQRCode($tenant)
+    public function generateQRCode($id, TenantQrToken $qrTokens)
     {
+        $tenant = Tenant::findOrFail($id);
+
+        if (strtolower((string) $tenant->status) !== 'active') {
+            return response()->json(['success' => false, 'message' => 'Only active tenants can have QR codes.'], 422);
+        }
+
         if (!class_exists(QrCode::class)) {
             \Log::warning("QrCode package not installed, skipping QR code generation for tenant {$tenant->id}");
             return null;
         }
 
-        try {
-            $qrData = json_encode([
-                'tenant_code' => $tenant->tenant_code,
-                'business_name' => $tenant->business_name,
-                'contact_person' => $tenant->contact_person,
-                'contact_number' => $tenant->contact_number,
+        $frontendUrl = rtrim((string) config('app.frontend_url'), '/');
+        if ($frontendUrl === '') {
+            \Log::error('Tenant QR generation requires FRONTEND_URL to be configured.', [
+                'tenant_id' => $tenant->id,
             ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant QR generation is unavailable because the frontend URL is not configured.',
+            ], 503);
+        }
+
+        try {
+            $qrData = $frontendUrl . '/tenant-scan/' . rawurlencode($qrTokens->issue($tenant));
 
             $qrCode = (new PngWriter())->write(new QrCode($qrData))->getString();
 
@@ -667,36 +715,58 @@ class TenantController extends Controller
     }
 
     /**
-     * Public endpoint — returns tenant info + contracts for QR scan views.
-     * No authentication required so any device can view after scanning.
+     * Issue an opaque QR token for the tenant QR page.
      */
-    public function publicTenantInfo(Request $request, $id)
+    public function issueQrToken($id, TenantQrToken $qrTokens)
+    {
+        $tenant = Tenant::findOrFail($id);
+        if (strtolower((string) $tenant->status) !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only active tenants can have QR codes.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'token' => $qrTokens->issue($tenant),
+        ]);
+    }
+
+    /**
+     * Validate an opaque QR token and return the associated tenant-facing details.
+     */
+    public function publicTenantInfo(Request $request, TenantQrToken $qrTokens)
     {
         $validator = Validator::make($request->all(), [
+            'token' => ['required', 'string', 'max:2048'],
             'access_code' => ['required', 'digits:8'],
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Enter the 8-digit tenant QR password.',
+                'message' => 'A valid tenant QR token is required.',
                 'errors' => $validator->errors(),
             ], 422);
         }
 
-        $tenant = Tenant::with(['user', 'contracts.rentalSpace'])->find($id);
-
+        $tenant = $qrTokens->resolve((string) $request->input('token'));
         if (!$tenant) {
-            return response()->json(['success' => false, 'message' => 'Tenant not found'], 404);
-        }
-
-        if (!$tenant->qr_password_hash || !Hash::check($request->access_code, $tenant->qr_password_hash)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid tenant QR password.',
+                'message' => 'Invalid or unrecognized tenant QR code.',
+            ], 404);
+        }
+
+        if (!$tenant->qr_password_hash || !Hash::check((string) $request->input('access_code'), $tenant->qr_password_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The QR password is incorrect.',
             ], 403);
         }
 
+        $tenant->load(['user', 'contracts.rentalSpace']);
         $profilePictureUrl = $this->resolveProfilePictureUrl($tenant->profile_picture);
 
         $contracts = $tenant->contracts->map(function ($contract) {
@@ -735,44 +805,6 @@ class TenantController extends Controller
                 'contracts'        => $contracts,
             ],
         ]);
-    }
-
-    /**
-     * Scan QR code and get tenant details
-     */
-    public function scanQRCode(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'tenant_code' => 'required|string',
-            'access_code' => ['required', 'digits:8'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $tenant = Tenant::with(['activeContracts.rentalSpace'])
-            ->where('tenant_code', $request->tenant_code)
-            ->first();
-
-        if (!$tenant) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tenant not found'
-            ], 404);
-        }
-
-        if (!$tenant->qr_password_hash || !Hash::check($request->access_code, $tenant->qr_password_hash)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid tenant QR password.',
-            ], 403);
-        }
-
-        return $this->getQRCodeWithDetails($tenant->id);
     }
 
     /**

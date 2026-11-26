@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Complaint;
 use App\Models\ComplaintReply;
 use App\Models\Tenant;
+use App\Services\TenantQrToken;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
 class ComplaintController extends Controller
@@ -49,6 +51,50 @@ class ComplaintController extends Controller
         ]);
 
         return response()->json(['success' => true, 'data' => $complaint], 201);
+    }
+
+    public function storeFromQr(Request $request, TenantQrToken $qrTokens)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => ['required', 'string', 'max:2048'],
+            'access_code' => ['required', 'digits:8'],
+            'category' => ['required', 'in:rental_space,payments,contracts,facilities,staff_service,other'],
+            'subject' => ['required', 'string', 'min:3', 'max:150', 'regex:/\S/'],
+            'message' => ['required', 'string', 'min:10', 'max:5000', 'regex:/\S/'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $tenant = $qrTokens->resolve((string) $request->input('token'));
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or unrecognized tenant QR code.',
+            ], 404);
+        }
+
+        if (!$tenant->qr_password_hash || !Hash::check((string) $request->input('access_code'), $tenant->qr_password_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The QR password is incorrect.',
+            ], 403);
+        }
+
+        $complaint = $tenant->complaints()->create([
+            'category' => $request->input('category'),
+            'subject' => trim($request->input('subject')),
+            'message' => trim($request->input('message')),
+            'status' => 'pending',
+            'admin_read' => false,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your message has been submitted successfully.',
+            'data' => $complaint,
+        ], 201);
     }
 
     public function index()

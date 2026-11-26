@@ -47,10 +47,9 @@ Route::get('/health', function() {
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
-Route::post('/qr-scan', [TenantController::class, 'scanQRCode']);
 Route::get('/storage/{path}', [TenantController::class, 'serveFile'])->where('path', '.*');
-// Public QR scan info requires the tenant's generated 8-digit access code.
-Route::post('/public/tenant/{id}', [TenantController::class, 'publicTenantInfo']);
+Route::post('/public/tenant-scan', [TenantController::class, 'publicTenantInfo'])->middleware('throttle:10,1');
+Route::post('/public/tenant-scan/complaints', [ComplaintController::class, 'storeFromQr'])->middleware('throttle:5,1');
 
 // DEBUG: Direct database check (remove after debugging)
 Route::get('/debug/contract/{id}', function($id) {
@@ -81,6 +80,7 @@ Route::middleware(['auth:sanctum', 'tenant.access'])->group(function () {
     // Tenant administration is limited to admin/staff accounts.
     Route::middleware('role:admin,staff')->group(function () {
         Route::apiResource('tenants', TenantController::class)->except(['store']);
+        Route::get('/tenants/{id}/qr-token', [TenantController::class, 'issueQrToken']);
         Route::get('/tenants/{id}/qr-code', [TenantController::class, 'getQRCodeWithDetails']);
         Route::post('/tenants/{id}/generate-qr', [TenantController::class, 'generateQRCode']);
         Route::post('/tenants/{id}/upload-picture', [TenantController::class, 'uploadPicture']);

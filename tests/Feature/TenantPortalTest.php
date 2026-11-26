@@ -3,10 +3,11 @@
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 
 uses(RefreshDatabase::class);
 
-it('returns portal data for the authenticated tenant', function () {
+it('preserves authenticated tenant portal functionality', function () {
     $user = User::create([
         'name' => 'Tenant User',
         'email' => 'tenant@example.com',
@@ -24,15 +25,7 @@ it('returns portal data for the authenticated tenant', function () {
         'status' => 'active',
     ]);
 
-    $login = $this->postJson('/api/login', [
-        'email' => 'tenant@example.com',
-        'password' => 'password',
-    ]);
-
-    $login->assertOk()
-        ->assertJsonPath('user.role', 'tenant');
-
-    $this->withToken($login->json('token'))
+    $this->actingAs($user, 'sanctum')
         ->getJson('/api/tenant/portal')
         ->assertOk()
         ->assertJsonPath('success', true)
@@ -40,4 +33,40 @@ it('returns portal data for the authenticated tenant', function () {
         ->assertJsonPath('data.business_name', 'Tenant Business')
         ->assertJsonPath('data.email', 'tenant@example.com')
         ->assertJsonPath('data.contracts', []);
+});
+
+it('rejects tenant password login without modifying the stored password', function () {
+    $user = User::create([
+        'name' => 'Tenant User',
+        'email' => 'tenant@example.com',
+        'password' => 'password',
+        'role' => 'tenant',
+        'status' => 'active',
+    ]);
+    $storedPassword = $user->password;
+
+    $this->postJson('/api/login', [
+        'email' => 'tenant@example.com',
+        'password' => 'password',
+    ])->assertUnauthorized();
+
+    expect(Hash::check('password', $user->fresh()->password))->toBeTrue();
+    expect($user->fresh()->password)->toBe($storedPassword);
+});
+
+it('continues to allow administrator password login', function () {
+    User::create([
+        'name' => 'Admin User',
+        'email' => 'admin@example.com',
+        'password' => 'password',
+        'role' => 'admin',
+        'status' => 'active',
+    ]);
+
+    $this->postJson('/api/login', [
+        'email' => 'admin@example.com',
+        'password' => 'password',
+    ])->assertOk()
+        ->assertJsonPath('user.role', 'admin')
+        ->assertJsonStructure(['token']);
 });

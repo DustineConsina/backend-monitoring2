@@ -137,13 +137,20 @@ Set `APP_KEY` to a newly generated Laravel key. The blueprint sets `APP_URL` to
 `https://frontend-monitoring2.vercel.app`. Set the Vercel build environment
 variable `NEXT_PUBLIC_API_URL=https://backend-monitoring2.onrender.com/api`;
 this is required because the frontend has no hardcoded production API fallback.
-Configure the Render `CLOUDINARY_URL` variable for media storage. If email
-delivery is enabled, also configure the SMTP values declared in `render.yaml`.
+Configure the Render `CLOUDINARY_URL` variable for media storage and set the
+S3-compatible `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`AWS_DEFAULT_REGION`, `AWS_BUCKET`, and, when needed, `AWS_ENDPOINT` values
+declared in `render.yaml`. Complaint images use the private S3 disk in
+production; Cloudinary is not used for these private attachments. If email
+delivery is enabled, configure the SMTP values declared in `render.yaml`
+(`MAIL_MAILER=smtp`, host, port, username, password, and sender address).
+The blueprint sets `MAIL_SCHEME=smtp`; for implicit TLS on port 465 use
+`MAIL_SCHEME=smtps`.
 Set `FRONTEND_URL` to the deployed frontend's HTTPS origin in production; this
 origin is used for CORS and tenant portal links. Complaint attachments default
-to the private local disk for development. Hosted deployments should configure
-`COMPLAINT_ATTACHMENT_DISK` to a persistent private disk or an S3-compatible
-disk and provide that disk's credentials through the hosting environment.
+to the private local disk for development. Existing local/public complaint
+images are checked as a fallback while those files still exist; images already
+lost from an ephemeral deployment cannot be reconstructed automatically.
 The Render entrypoint validates required settings, runs migrations, and starts
 Apache; it does not seed or overwrite production data.
 

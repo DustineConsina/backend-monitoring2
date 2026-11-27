@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Cloudinary\Cloudinary;
+use Cloudinary\Asset\DeliveryType;
 use Illuminate\Http\UploadedFile;
 
 class CloudinaryService
@@ -97,12 +98,28 @@ class CloudinaryService
         return $this->uploadSource($source, $folder, $public_id, $resourceType, $mimeType);
     }
 
+    public function uploadPrivateImageFile(
+        UploadedFile $file,
+        string $folder,
+        ?string $publicId = null
+    ): array {
+        return $this->uploadSource(
+            $file->getRealPath(),
+            $folder,
+            $publicId,
+            'image',
+            $file->getMimeType(),
+            DeliveryType::AUTHENTICATED
+        );
+    }
+
     private function uploadSource(
         string $source,
         string $folder,
         ?string $public_id,
         string $resourceType,
-        ?string $mimeType = null
+        ?string $mimeType = null,
+        string $deliveryType = DeliveryType::UPLOAD
     ): array
     {
         try {
@@ -117,6 +134,10 @@ class CloudinaryService
                 'folder' => $folder,
                 'resource_type' => $resourceType,
             ];
+
+            if ($deliveryType !== DeliveryType::UPLOAD) {
+                $options['type'] = $deliveryType;
+            }
 
             if ($resourceType === 'image' || $resourceType === 'auto') {
                 $options['quality'] = 'auto';
@@ -165,7 +186,11 @@ class CloudinaryService
      * @param string $public_id
      * @return boolean
      */
-    public function deleteFile(string $public_id, string $resourceType = 'image'): bool
+    public function deleteFile(
+        string $public_id,
+        string $resourceType = 'image',
+        string $deliveryType = DeliveryType::UPLOAD
+    ): bool
     {
         try {
             if (!$this->cloudinary) {
@@ -174,6 +199,7 @@ class CloudinaryService
 
             $this->cloudinary->uploadApi()->destroy($public_id, [
                 'resource_type' => $resourceType,
+                'type' => $deliveryType,
             ]);
             return true;
         } catch (\Exception $e) {
@@ -217,6 +243,29 @@ class CloudinaryService
                 'error' => $e->getMessage()
             ]);
             // Return null if unable to generate URL
+            return null;
+        }
+    }
+
+    public function generateAuthenticatedImageUrl(string $publicId): ?string
+    {
+        try {
+            if (!$this->cloudinary) {
+                \Log::warning('Cloudinary is not configured for authenticated image delivery.');
+                return null;
+            }
+
+            return (string) $this->cloudinary
+                ->image($publicId)
+                ->deliveryType(DeliveryType::AUTHENTICATED)
+                ->signUrl()
+                ->toUrl();
+        } catch (\Exception $e) {
+            \Log::error('Failed to generate authenticated Cloudinary image URL.', [
+                'public_id' => $publicId,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
     }

@@ -5,9 +5,11 @@ use App\Models\Complaint;
 use App\Models\ComplaintReply;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\CloudinaryService;
 use App\Services\TenantQrToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
@@ -46,6 +48,30 @@ function createComplaintResponseFixture(?string $email = 'tenant@example.com'): 
     ]);
 
     return [$admin, $tenantUser, $tenant, $complaint];
+}
+
+function mockCloudinaryComplaintImages(): void
+{
+    $uploadNumber = 0;
+    $cloudinary = Mockery::mock(CloudinaryService::class);
+    $cloudinary->shouldReceive('uploadPrivateImageFile')
+        ->andReturnUsing(function () use (&$uploadNumber) {
+            $uploadNumber++;
+
+            return [
+                'success' => true,
+                'public_id' => "complaint-attachments/test-{$uploadNumber}",
+            ];
+        });
+    $cloudinary->shouldReceive('generateAuthenticatedImageUrl')
+        ->andReturn('https://res.cloudinary.com/test/image/authenticated/complaint.png');
+    $cloudinary->shouldReceive('deleteFile')->andReturn(true);
+    app()->instance(CloudinaryService::class, $cloudinary);
+
+    $image = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Jx8AAAAASUVORK5CYII=', true);
+    Http::fake([
+        'https://res.cloudinary.com/*' => Http::response($image, 200, ['Content-Type' => 'image/png']),
+    ]);
 }
 
 it('saves an admin response before sending a minimal tenant email and shows it in the QR complaint flow', function () {
@@ -216,7 +242,7 @@ it('rejects whitespace-only admin responses', function () {
 });
 
 it('allows tenants and administrators to upload private complaint images', function () {
-    Storage::fake('local');
+    mockCloudinaryComplaintImages();
     Mail::fake();
     config(['app.frontend_url' => 'https://contracts.example.test']);
     [$admin, , $tenant] = createComplaintResponseFixture();
@@ -242,7 +268,7 @@ it('allows tenants and administrators to upload private complaint images', funct
         ->assertJsonPath('data.has_image', true);
 
     $savedComplaint = Complaint::where('subject', 'Photo of damaged stall')->firstOrFail();
-    Storage::disk('local')->assertExists($savedComplaint->image_path);
+    expect($savedComplaint->image_path)->toStartWith('cloudinary:complaint-attachments/');
 
     $requestKey = (string) \Illuminate\Support\Str::uuid();
     $this->actingAs($admin, 'sanctum')
@@ -257,7 +283,7 @@ it('allows tenants and administrators to upload private complaint images', funct
         ->assertJsonPath('data.replies.0.has_image', true);
 
     $reply = ComplaintReply::where('request_key', $requestKey)->firstOrFail();
-    Storage::disk('local')->assertExists($reply->image_path);
+    expect($reply->image_path)->toStartWith('cloudinary:complaint-attachments/');
     $this->get("/api/complaints/{$savedComplaint->id}/image")->assertOk();
     $this->get("/api/complaints/{$savedComplaint->id}/replies/{$reply->id}/image")->assertOk();
 
@@ -292,7 +318,7 @@ it('allows tenants and administrators to upload private complaint images', funct
 });
 
 it('loads real complaints for admins and permits only the QR tenant to reply chronologically', function () {
-    Storage::fake('local');
+    mockCloudinaryComplaintImages();
     [$admin, $tenantUser, $tenant, $complaint] = createComplaintResponseFixture();
     $tenant->forceFill([
         'qr_password_hash' => \Illuminate\Support\Facades\Hash::make('12345678'),
@@ -324,7 +350,7 @@ it('loads real complaints for admins and permits only the QR tenant to reply chr
         ->assertJsonPath('data.has_image', true);
 
     $tenantReply = ComplaintReply::where('complaint_id', $complaint->id)->where('sender_id', $tenantUser->id)->firstOrFail();
-    Storage::disk('local')->assertExists($tenantReply->image_path);
+    expect($tenantReply->image_path)->toStartWith('cloudinary:complaint-attachments/');
     $this->postJson('/api/public/tenant-scan/complaints/image', [
         'token' => $qrToken,
         'access_code' => '12345678',
@@ -383,4 +409,20 @@ it('loads real complaints for admins and permits only the QR tenant to reply chr
         'complaint_id' => $complaint->id,
         'message' => 'Reply to resolved complaint.',
     ])->assertUnprocessable();
+});
+
+it('serves legacy public-disk complaint images after moving new uploads to S3', function () {
+    Storage::fake('s3');
+    Storage::fake('public');
+    config(['filesystems.complaint_attachments' => 's3']);
+    [$admin, , , $complaint] = createComplaintResponseFixture();
+    $imagePath = 'complaints/legacy-image.png';
+    $imageContent = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Jx8AAAAASUVORK5CYII=', true);
+    Storage::disk('public')->put($imagePath, $imageContent);
+    $complaint->forceFill(['image_path' => $imagePath])->save();
+
+    $this->actingAs($admin, 'sanctum')
+        ->get("/api/complaints/{$complaint->id}/image")
+        ->assertOk()
+        ->assertHeader('content-type', 'image/png');
 });

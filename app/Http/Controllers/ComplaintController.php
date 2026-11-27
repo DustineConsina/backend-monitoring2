@@ -6,10 +6,12 @@ use App\Models\Complaint;
 use App\Models\ComplaintReply;
 use App\Models\Tenant;
 use App\Mail\ComplaintResponseNotification;
+use App\Services\CloudinaryService;
 use App\Services\TenantQrToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -19,6 +21,10 @@ use Throwable;
 
 class ComplaintController extends Controller
 {
+    public function __construct(private CloudinaryService $cloudinary)
+    {
+    }
+
     public function mine(Request $request)
     {
         $tenant = $request->user()->tenant;
@@ -138,7 +144,7 @@ class ComplaintController extends Controller
             ]);
         } catch (Throwable $exception) {
             if ($imagePath) {
-                Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                $this->deleteAttachment($imagePath);
             }
             throw $exception;
         }
@@ -274,7 +280,7 @@ class ComplaintController extends Controller
             ]);
         } catch (Throwable $exception) {
             if ($imagePath) {
-                Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                $this->deleteAttachment($imagePath);
             }
             throw $exception;
         }
@@ -365,19 +371,19 @@ class ComplaintController extends Controller
                 $reply = ComplaintReply::where('request_key', $requestKey)->first();
                 if (!$reply) {
                     if ($imagePath) {
-                        Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                        $this->deleteAttachment($imagePath);
                     }
                     throw $exception;
                 }
             } catch (Throwable $exception) {
                 if ($imagePath) {
-                    Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                    $this->deleteAttachment($imagePath);
                 }
                 throw $exception;
             }
 
             if ($imagePath && $reply->image_path !== $imagePath) {
-                Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                $this->deleteAttachment($imagePath);
             }
 
             if ((int) $reply->complaint_id !== (int) $complaint->id || $reply->message !== $message) {
@@ -417,7 +423,7 @@ class ComplaintController extends Controller
             ]);
         } catch (Throwable $exception) {
             if ($imagePath) {
-                Storage::disk($this->attachmentDiskName())->delete($imagePath);
+                $this->deleteAttachment($imagePath);
             }
             throw $exception;
         }
@@ -425,38 +431,101 @@ class ComplaintController extends Controller
 
     private function privateImageResponse(?string $imagePath)
     {
-        $disk = Storage::disk($this->attachmentDiskName());
-        if (!$imagePath || !$disk->exists($imagePath)) {
+        if (!$imagePath) {
             return response()->json(['success' => false, 'message' => 'Image attachment not found.'], 404);
         }
 
-        try {
-            $stream = $disk->readStream($imagePath);
-            if (!is_resource($stream)) {
-                throw new \RuntimeException('Attachment storage did not provide a readable stream.');
+        if (str_starts_with($imagePath, 'cloudinary:')) {
+            $publicId = substr($imagePath, strlen('cloudinary:'));
+            $url = $this->cloudinary->generateAuthenticatedImageUrl($publicId);
+            if (!$url) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Image attachment is temporarily unavailable.',
+                ], 503);
             }
-            $mimeType = $disk->mimeType($imagePath) ?: 'application/octet-stream';
+
+            try {
+                $cloudinaryResponse = Http::timeout(15)->get($url);
+                $mimeType = (string) $cloudinaryResponse->header('Content-Type');
+                if (!$cloudinaryResponse->successful() || !str_starts_with($mimeType, 'image/')) {
+                    Log::error('Authenticated Cloudinary complaint image could not be fetched.', [
+                        'status' => $cloudinaryResponse->status(),
+                        'content_type' => $mimeType,
+                    ]);
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Image attachment is temporarily unavailable.',
+                    ], 503);
+                }
+
+                return response($cloudinaryResponse->body(), 200, [
+                    'Content-Type' => $mimeType,
+                    'Cache-Control' => 'private, no-store',
+                    'X-Content-Type-Options' => 'nosniff',
+                ]);
+            } catch (Throwable $exception) {
+                Log::error('Authenticated Cloudinary complaint image could not be fetched.', [
+                    'exception' => get_class($exception),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Image attachment is temporarily unavailable.',
+                ], 503);
+            }
+        }
+
+        $diskNames = array_values(array_unique([
+            $this->attachmentDiskName(),
+            'local',
+            'public',
+        ]));
+
+        try {
+            foreach ($diskNames as $diskName) {
+                $disk = Storage::disk($diskName);
+                if (!$disk->exists($imagePath)) {
+                    continue;
+                }
+
+                $stream = $disk->readStream($imagePath);
+                if (!is_resource($stream)) {
+                    throw new \RuntimeException('Attachment storage did not provide a readable stream.');
+                }
+                $mimeType = $disk->mimeType($imagePath) ?: 'application/octet-stream';
+
+                return response()->stream(function () use ($stream) {
+                    fpassthru($stream);
+                    fclose($stream);
+                }, 200, [
+                    'Content-Type' => $mimeType,
+                    'Cache-Control' => 'private, no-store',
+                    'X-Content-Type-Options' => 'nosniff',
+                ]);
+            }
         } catch (Throwable $exception) {
             if (isset($stream) && is_resource($stream)) {
                 fclose($stream);
             }
 
             Log::error('Complaint attachment could not be read from storage.', [
-                'disk' => $this->attachmentDiskName(),
+                'disks_checked' => $diskNames,
                 'exception' => get_class($exception),
             ]);
 
             return response()->json(['success' => false, 'message' => 'Image attachment is temporarily unavailable.'], 503);
         }
 
-        return response()->stream(function () use ($stream) {
-            fpassthru($stream);
-            fclose($stream);
-        }, 200, [
-            'Content-Type' => $mimeType,
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
+        Log::warning('Complaint attachment is missing from configured storage.', [
+            'disks_checked' => $diskNames,
         ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Image attachment is missing from storage. Please contact the administrator.',
+        ], 404);
     }
 
     private function attachmentDiskName(): string
@@ -471,12 +540,35 @@ class ComplaintController extends Controller
             return null;
         }
 
-        $path = $file->store('complaints', $this->attachmentDiskName());
-        if (!is_string($path) || $path === '') {
-            throw new \RuntimeException('Unable to store complaint image attachment.');
+        $upload = $this->cloudinary->uploadPrivateImageFile(
+            $file,
+            'complaint-attachments',
+            'complaint-' . \Illuminate\Support\Str::uuid()
+        );
+        if (!$upload['success'] || empty($upload['public_id'])) {
+            Log::error('Complaint image upload to Cloudinary failed.', [
+                'reason' => $upload['message'] ?? 'Cloudinary did not return a public ID.',
+            ]);
+            throw new \RuntimeException('Unable to store the complaint image in Cloudinary.');
         }
 
-        return $path;
+        return 'cloudinary:' . $upload['public_id'];
+    }
+
+    private function deleteAttachment(string $imagePath): void
+    {
+        if (str_starts_with($imagePath, 'cloudinary:')) {
+            $publicId = substr($imagePath, strlen('cloudinary:'));
+            if (!$this->cloudinary->deleteFile($publicId, 'image', 'authenticated')) {
+                Log::warning('Failed to delete complaint image from Cloudinary.', [
+                    'public_id' => $publicId,
+                ]);
+            }
+
+            return;
+        }
+
+        Storage::disk($this->attachmentDiskName())->delete($imagePath);
     }
 
     private function sendResponseNotification(ComplaintReply $reply): array

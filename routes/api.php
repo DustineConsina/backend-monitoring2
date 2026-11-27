@@ -50,7 +50,8 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/storage/{path}', [TenantController::class, 'serveFile'])->where('path', '.*');
 Route::post('/public/tenant-scan', [TenantController::class, 'publicTenantInfo'])->middleware('throttle:10,1');
 Route::post('/public/tenant-scan/complaints', [ComplaintController::class, 'storeFromQr'])->middleware('throttle:5,1');
-Route::post('/public/tenant-scan/complaints/image', [ComplaintController::class, 'publicImage'])->middleware('throttle:20,1');
+Route::post('/public/tenant-scan/complaints/image', [ComplaintController::class, 'publicImage'])->middleware('throttle:60,1');
+Route::post('/public/tenant-scan/complaints/replies', [ComplaintController::class, 'replyFromQr'])->middleware('throttle:10,1');
 
 // DEBUG: Direct database check (remove after debugging)
 Route::get('/debug/contract/{id}', function($id) {

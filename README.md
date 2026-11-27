@@ -134,11 +134,16 @@ password. Upload Aiven's CA certificate as a Render secret file, then set
 
 Set `APP_KEY` to a newly generated Laravel key. The blueprint sets `APP_URL` to
 `https://backend-monitoring2.onrender.com` and `FRONTEND_URL` to
-`https://frontend-monitoring2.vercel.app`. The frontend uses
-`https://backend-monitoring2.onrender.com/api` as its production API URL; set
-`NEXT_PUBLIC_API_URL` in Vercel only if you change the backend hostname.
+`https://frontend-monitoring2.vercel.app`. Set the Vercel build environment
+variable `NEXT_PUBLIC_API_URL=https://backend-monitoring2.onrender.com/api`;
+this is required because the frontend has no hardcoded production API fallback.
 Configure the Render `CLOUDINARY_URL` variable for media storage. If email
 delivery is enabled, also configure the SMTP values declared in `render.yaml`.
+Set `FRONTEND_URL` to the deployed frontend's HTTPS origin in production; this
+origin is used for CORS and tenant portal links. Complaint attachments default
+to the private local disk for development. Hosted deployments should configure
+`COMPLAINT_ATTACHMENT_DISK` to a persistent private disk or an S3-compatible
+disk and provide that disk's credentials through the hosting environment.
 The Render entrypoint validates required settings, runs migrations, and starts
 Apache; it does not seed or overwrite production data.
 

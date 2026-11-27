@@ -49,11 +49,27 @@ function createComplaintResponseFixture(?string $email = 'tenant@example.com'): 
 }
 
 it('saves an admin response before sending a minimal tenant email and shows it in the QR complaint flow', function () {
-    Mail::fake();
     config(['app.frontend_url' => 'https://contracts.example.test']);
     [$admin, $tenantUser, $tenant, $complaint] = createComplaintResponseFixture();
     $requestKey = (string) \Illuminate\Support\Str::uuid();
     $responseText = 'Our maintenance team will inspect the door this week.';
+    $acceptedMessage = \Mockery::mock(\Illuminate\Mail\SentMessage::class);
+    $acceptedMessage->shouldReceive('getMessageId')->once()->andReturn('<provider-message-123@example.test>');
+    $renderer = app('mailer');
+    app()->instance('mailer', $renderer);
+    $pendingMail = \Mockery::mock(\Illuminate\Mail\PendingMail::class);
+    $capturedMail = null;
+    $pendingMail->shouldReceive('send')
+        ->once()
+        ->with(\Mockery::on(function ($mail) use (&$capturedMail, $requestKey, $tenantUser) {
+            $capturedMail = $mail;
+            $mail->to($tenantUser->email);
+            return $mail instanceof ComplaintResponseNotification
+                && ComplaintReply::where('request_key', $requestKey)->exists();
+        }))
+        ->andReturn($acceptedMessage);
+    Mail::shouldReceive('mailer')->andReturn($renderer);
+    Mail::shouldReceive('to')->once()->with($tenantUser->email)->andReturn($pendingMail);
 
     $this->actingAs($admin, 'sanctum')
         ->putJson("/api/complaints/{$complaint->id}", [
@@ -63,6 +79,7 @@ it('saves an admin response before sending a minimal tenant email and shows it i
         ])
         ->assertOk()
         ->assertJsonPath('success', true)
+        ->assertJsonPath('notification_accepted', true)
         ->assertJsonPath('notification_sent', true);
 
     $reply = ComplaintReply::where('request_key', $requestKey)->firstOrFail();
@@ -71,15 +88,13 @@ it('saves an admin response before sending a minimal tenant email and shows it i
         ->and($reply->email_sent_at)->not->toBeNull();
     expect($complaint->fresh()->status)->toBe('in_progress');
 
-    Mail::assertSent(ComplaintResponseNotification::class, function (ComplaintResponseNotification $mail) use ($tenantUser, $responseText, $complaint) {
-        $rendered = $mail->render();
-
-        return $mail->hasTo($tenantUser->email)
-            && $mail->subject === 'New Response to Your Complaint – Contract Management System'
-            && str_contains($rendered, 'https://contracts.example.test/tenant-access')
-            && !str_contains($rendered, $responseText)
-            && !str_contains($rendered, $complaint->message);
-    });
+    expect($capturedMail)->toBeInstanceOf(ComplaintResponseNotification::class);
+    $rendered = $capturedMail->render();
+    expect($capturedMail->hasTo($tenantUser->email))->toBeTrue()
+        ->and($capturedMail->subject)->toBe('New Response to Your Complaint – Contract Management System')
+        ->and($rendered)->toContain('https://contracts.example.test/tenant-access')
+        ->and($rendered)->not->toContain($responseText)
+        ->and($rendered)->not->toContain($complaint->message);
 
     $tenant->forceFill([
         'qr_password_hash' => \Illuminate\Support\Facades\Hash::make('12345678'),
@@ -120,7 +135,7 @@ it('saves an admin response before sending a minimal tenant email and shows it i
         ])
         ->assertOk();
 
-    Mail::assertSent(ComplaintResponseNotification::class, 1);
+    $pendingMail->shouldHaveReceived('send')->once();
     expect(ComplaintReply::where('request_key', $requestKey)->count())->toBe(1);
 });
 
@@ -160,6 +175,27 @@ it('keeps the saved response and reports an email transport failure', function (
         ->assertJsonPath('notification_message', 'Response saved, but the notification email could not be sent. Check the email configuration and try again.');
 
     expect(ComplaintReply::where('complaint_id', $complaint->id)->count())->toBe(1);
+});
+
+it('does not report an email as accepted without a transport receipt', function () {
+    Mail::fake();
+    config(['app.frontend_url' => 'https://contracts.example.test']);
+    [$admin, , , $complaint] = createComplaintResponseFixture();
+    $requestKey = (string) \Illuminate\Support\Str::uuid();
+
+    $this->actingAs($admin, 'sanctum')
+        ->putJson("/api/complaints/{$complaint->id}", [
+            'status' => 'in_progress',
+            'reply' => 'We have received your request.',
+            'request_key' => $requestKey,
+        ])
+        ->assertOk()
+        ->assertJsonPath('notification_accepted', false)
+        ->assertJsonPath('notification_sent', false);
+
+    $reply = ComplaintReply::where('request_key', $requestKey)->firstOrFail();
+    expect($reply->email_sent_at)->toBeNull();
+    Mail::assertSent(ComplaintResponseNotification::class, 1);
 });
 
 it('rejects whitespace-only admin responses', function () {
@@ -253,4 +289,98 @@ it('allows tenants and administrators to upload private complaint images', funct
         'access_code' => '87654321',
         'complaint_id' => $savedComplaint->id,
     ])->assertForbidden();
+});
+
+it('loads real complaints for admins and permits only the QR tenant to reply chronologically', function () {
+    Storage::fake('local');
+    [$admin, $tenantUser, $tenant, $complaint] = createComplaintResponseFixture();
+    $tenant->forceFill([
+        'qr_password_hash' => \Illuminate\Support\Facades\Hash::make('12345678'),
+        'qr_access_code' => '12345678',
+    ])->save();
+    $qrToken = app(TenantQrToken::class)->issue($tenant);
+    $adminReply = $complaint->replies()->create([
+        'sender_id' => $admin->id,
+        'message' => 'Administration has received this request.',
+    ]);
+
+    $this->actingAs($admin, 'sanctum')
+        ->getJson('/api/complaints')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $complaint->id)
+        ->assertJsonPath('data.0.replies.0.id', $adminReply->id);
+
+    $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Jx8AAAAASUVORK5CYII=', true);
+    $this->post('/api/public/tenant-scan/complaints/replies', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+        'complaint_id' => $complaint->id,
+        'message' => 'Here is another photo of the problem.',
+        'image' => UploadedFile::fake()->createWithContent('follow-up.png', $png),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.sender.id', $tenantUser->id)
+        ->assertJsonPath('data.sender.role', 'tenant')
+        ->assertJsonPath('data.has_image', true);
+
+    $tenantReply = ComplaintReply::where('complaint_id', $complaint->id)->where('sender_id', $tenantUser->id)->firstOrFail();
+    Storage::disk('local')->assertExists($tenantReply->image_path);
+    $this->postJson('/api/public/tenant-scan/complaints/image', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+        'complaint_id' => $complaint->id,
+        'reply_id' => $tenantReply->id,
+    ])->assertOk();
+
+    $this->postJson('/api/public/tenant-scan', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.complaints.0.replies.0.message', 'Administration has received this request.')
+        ->assertJsonPath('data.complaints.0.replies.1.message', 'Here is another photo of the problem.');
+
+    $otherUser = User::create([
+        'name' => 'Other Tenant',
+        'email' => 'other-tenant@example.com',
+        'password' => 'tenant-password',
+        'role' => 'tenant',
+        'status' => 'active',
+    ]);
+    $otherTenant = Tenant::create([
+        'user_id' => $otherUser->id,
+        'tenant_code' => 'TEN-TEST-0002',
+        'business_name' => 'Other Tenant Business',
+        'contact_person' => 'Other Tenant',
+        'contact_number' => '09123456780',
+        'status' => 'active',
+    ]);
+    $otherComplaint = $otherTenant->complaints()->create([
+        'category' => 'other',
+        'subject' => 'Another tenant request',
+        'message' => 'This complaint must not be accessible to a different tenant.',
+        'status' => 'pending',
+    ]);
+
+    $this->postJson('/api/public/tenant-scan/complaints/replies', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+        'complaint_id' => $otherComplaint->id,
+        'message' => 'Unauthorized reply attempt.',
+    ])->assertNotFound();
+
+    $this->postJson('/api/public/tenant-scan/complaints/replies', [
+        'token' => $qrToken,
+        'access_code' => '87654321',
+        'complaint_id' => $complaint->id,
+        'message' => 'Wrong QR password.',
+    ])->assertForbidden();
+
+    $complaint->forceFill(['status' => 'resolved'])->save();
+    $this->postJson('/api/public/tenant-scan/complaints/replies', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+        'complaint_id' => $complaint->id,
+        'message' => 'Reply to resolved complaint.',
+    ])->assertUnprocessable();
 });

@@ -14,6 +14,7 @@ return [
     */
 
     'default' => env('FILESYSTEM_DISK', 'local'),
+    'complaint_attachments' => env('COMPLAINT_ATTACHMENT_DISK', 'local'),
 
     /*
     |--------------------------------------------------------------------------

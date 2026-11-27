@@ -94,6 +94,64 @@ class ComplaintController extends Controller
         ], 201);
     }
 
+    public function replyFromQr(Request $request, TenantQrToken $qrTokens)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => ['required', 'string', 'max:2048'],
+            'access_code' => ['required', 'digits:8'],
+            'complaint_id' => ['required', 'integer'],
+            'message' => ['required', 'string', 'min:2', 'max:5000', 'regex:/\S/'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $tenant = $qrTokens->resolve((string) $request->input('token'));
+        if (!$tenant || !$tenant->qr_password_hash || !Hash::check((string) $request->input('access_code'), $tenant->qr_password_hash)) {
+            return response()->json(['success' => false, 'message' => 'Invalid QR access credentials.'], 403);
+        }
+
+        if (!$tenant->user_id) {
+            return response()->json(['success' => false, 'message' => 'Tenant account is not available for replies.'], 403);
+        }
+
+        $complaint = $tenant->complaints()->find($request->integer('complaint_id'));
+        if (!$complaint) {
+            return response()->json(['success' => false, 'message' => 'Complaint not found.'], 404);
+        }
+
+        if (!in_array($complaint->status, ['pending', 'in_progress'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You can only reply while this request is pending or in progress.',
+            ], 422);
+        }
+
+        $imagePath = $this->storeAttachment($request, 'image');
+        try {
+            $reply = $complaint->replies()->create([
+                'sender_id' => $tenant->user_id,
+                'message' => trim($request->input('message')),
+                'image_path' => $imagePath,
+            ]);
+        } catch (Throwable $exception) {
+            if ($imagePath) {
+                Storage::disk($this->attachmentDiskName())->delete($imagePath);
+            }
+            throw $exception;
+        }
+
+        $complaint->forceFill(['admin_read' => false, 'admin_read_at' => null])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your reply has been submitted successfully.',
+            'data' => $reply->load('sender'),
+        ], 201);
+    }
+
     public function index()
     {
         return response()->json([
@@ -207,7 +265,7 @@ class ComplaintController extends Controller
             ], 422);
         }
 
-        $imagePath = $request->file('image')?->store('complaints', 'local');
+        $imagePath = $this->storeAttachment($request, 'image');
         try {
             $reply = $complaint->replies()->create([
                 'sender_id' => $request->user()->id,
@@ -216,7 +274,7 @@ class ComplaintController extends Controller
             ]);
         } catch (Throwable $exception) {
             if ($imagePath) {
-                Storage::disk('local')->delete($imagePath);
+                Storage::disk($this->attachmentDiskName())->delete($imagePath);
             }
             throw $exception;
         }
@@ -278,7 +336,7 @@ class ComplaintController extends Controller
         if ($hasReply) {
             $message = trim($request->input('reply'));
             $requestKey = (string) $request->input('request_key');
-            $imagePath = $request->file('reply_image')?->store('complaints', 'local');
+            $imagePath = $this->storeAttachment($request, 'reply_image');
 
             try {
                 $reply = DB::transaction(function () use ($complaint, $request, $message, $requestKey, $imagePath) {
@@ -307,19 +365,19 @@ class ComplaintController extends Controller
                 $reply = ComplaintReply::where('request_key', $requestKey)->first();
                 if (!$reply) {
                     if ($imagePath) {
-                        Storage::disk('local')->delete($imagePath);
+                        Storage::disk($this->attachmentDiskName())->delete($imagePath);
                     }
                     throw $exception;
                 }
             } catch (Throwable $exception) {
                 if ($imagePath) {
-                    Storage::disk('local')->delete($imagePath);
+                    Storage::disk($this->attachmentDiskName())->delete($imagePath);
                 }
                 throw $exception;
             }
 
             if ($imagePath && $reply->image_path !== $imagePath) {
-                Storage::disk('local')->delete($imagePath);
+                Storage::disk($this->attachmentDiskName())->delete($imagePath);
             }
 
             if ((int) $reply->complaint_id !== (int) $complaint->id || $reply->message !== $message) {
@@ -338,6 +396,7 @@ class ComplaintController extends Controller
         return response()->json([
             'success' => true,
             'data' => $complaint->fresh()->load(['tenant.user', 'replies']),
+            'notification_accepted' => $notificationSent,
             'notification_sent' => $notificationSent,
             'notification_message' => $notificationMessage,
         ]);
@@ -345,7 +404,7 @@ class ComplaintController extends Controller
 
     private function createComplaint(Tenant $tenant, Request $request): Complaint
     {
-        $imagePath = $request->file('image')?->store('complaints', 'local');
+        $imagePath = $this->storeAttachment($request, 'image');
 
         try {
             return $tenant->complaints()->create([
@@ -358,7 +417,7 @@ class ComplaintController extends Controller
             ]);
         } catch (Throwable $exception) {
             if ($imagePath) {
-                Storage::disk('local')->delete($imagePath);
+                Storage::disk($this->attachmentDiskName())->delete($imagePath);
             }
             throw $exception;
         }
@@ -366,14 +425,58 @@ class ComplaintController extends Controller
 
     private function privateImageResponse(?string $imagePath)
     {
-        if (!$imagePath || !Storage::disk('local')->exists($imagePath)) {
+        $disk = Storage::disk($this->attachmentDiskName());
+        if (!$imagePath || !$disk->exists($imagePath)) {
             return response()->json(['success' => false, 'message' => 'Image attachment not found.'], 404);
         }
 
-        return response()->file(Storage::disk('local')->path($imagePath), [
+        try {
+            $stream = $disk->readStream($imagePath);
+            if (!is_resource($stream)) {
+                throw new \RuntimeException('Attachment storage did not provide a readable stream.');
+            }
+            $mimeType = $disk->mimeType($imagePath) ?: 'application/octet-stream';
+        } catch (Throwable $exception) {
+            if (isset($stream) && is_resource($stream)) {
+                fclose($stream);
+            }
+
+            Log::error('Complaint attachment could not be read from storage.', [
+                'disk' => $this->attachmentDiskName(),
+                'exception' => get_class($exception),
+            ]);
+
+            return response()->json(['success' => false, 'message' => 'Image attachment is temporarily unavailable.'], 503);
+        }
+
+        return response()->stream(function () use ($stream) {
+            fpassthru($stream);
+            fclose($stream);
+        }, 200, [
+            'Content-Type' => $mimeType,
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    private function attachmentDiskName(): string
+    {
+        return (string) config('filesystems.complaint_attachments', 'local');
+    }
+
+    private function storeAttachment(Request $request, string $field): ?string
+    {
+        $file = $request->file($field);
+        if (!$file) {
+            return null;
+        }
+
+        $path = $file->store('complaints', $this->attachmentDiskName());
+        if (!is_string($path) || $path === '') {
+            throw new \RuntimeException('Unable to store complaint image attachment.');
+        }
+
+        return $path;
     }
 
     private function sendResponseNotification(ComplaintReply $reply): array
@@ -392,22 +495,41 @@ class ComplaintController extends Controller
         }
 
         try {
-            $sent = DB::transaction(function () use ($reply, $tenant, $email, $frontendUrl) {
+            $result = DB::transaction(function () use ($reply, $tenant, $email, $frontendUrl) {
                 $lockedReply = ComplaintReply::lockForUpdate()->findOrFail($reply->id);
                 if ($lockedReply->email_sent_at) {
-                    return true;
+                    return ['accepted' => true, 'message_id' => null];
                 }
 
-                Mail::to($email)->send(new ComplaintResponseNotification(
+                $sentMessage = Mail::to($email)->send(new ComplaintResponseNotification(
                     (string) ($tenant->contact_person ?: $tenant->business_name ?: 'Tenant'),
                     $frontendUrl . '/tenant-access',
                 ));
+                if (!$sentMessage instanceof \Illuminate\Mail\SentMessage) {
+                    throw new \RuntimeException('The mail transport did not return an acceptance receipt.');
+                }
 
                 $lockedReply->forceFill(['email_sent_at' => now()])->save();
-                return true;
+                return [
+                    'accepted' => true,
+                    'message_id' => $sentMessage?->getMessageId(),
+                ];
             });
 
-            return [$sent, $sent ? 'Response saved and notification email sent.' : 'Response saved, but the notification email was not sent.'];
+            if ($result['message_id']) {
+                Log::info('Complaint response email accepted by mail transport.', [
+                    'complaint_id' => $reply->complaint_id,
+                    'reply_id' => $reply->id,
+                    'provider_message_id' => $result['message_id'],
+                ]);
+            }
+
+            return [
+                $result['accepted'],
+                $result['accepted']
+                    ? 'Response saved. The configured mail transport accepted the notification; final delivery is not confirmed.'
+                    : 'Response saved, but the notification email was not accepted by the mail transport.',
+            ];
         } catch (Throwable $exception) {
             Log::error('Complaint response email delivery failed.', [
                 'complaint_id' => $reply->complaint_id,

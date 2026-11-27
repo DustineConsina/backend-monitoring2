@@ -39,6 +39,6 @@ class Complaint extends Model
 
     public function replies()
     {
-        return $this->hasMany(ComplaintReply::class)->with('sender')->orderBy('created_at');
+        return $this->hasMany(ComplaintReply::class)->with('sender')->orderBy('created_at')->orderBy('id');
     }
 }

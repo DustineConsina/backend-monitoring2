@@ -24,6 +24,7 @@ This replaces manual paper-based processes with a centralized digital solution f
 - 📱 **QR Code System** - Unique codes per tenant with contract and space details
 - 📧 **Email Notifications** - Automated reminders for payments and contract expiry
 - 💬 **Chat System** - Real-time communication between tenants and staff
+- 🖼️ **Complaint Attachments** - Optional private image attachments on tenant complaints and administration responses (JPG, PNG, or WebP; up to 5 MB)
 - 📊 **Comprehensive Reports** - Contracts, payments, revenue, delinquency, and more
 - 🔍 **Audit Trail** - Complete tracking of all system activities
 - 📈 **Dashboard Analytics** - Real-time statistics and visualizations
@@ -54,6 +55,8 @@ php artisan migrate
 php artisan db:seed
 php artisan storage:link
 ```
+
+Complaint attachments are stored on the backend's configured local filesystem disk and are served only after tenant QR/password or administrator authentication. Keep that disk persistent in production; the attachments do not require a public storage link.
 
 ### 4. Run the Application
 ```bash

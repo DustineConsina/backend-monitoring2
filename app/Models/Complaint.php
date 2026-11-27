@@ -15,12 +15,22 @@ class Complaint extends Model
         'admin_read',
         'admin_read_at',
         'reply',
+        'image_path',
     ];
+
+    protected $hidden = ['image_path'];
+
+    protected $appends = ['has_image'];
 
     protected $casts = [
         'admin_read' => 'boolean',
         'admin_read_at' => 'datetime',
     ];
+
+    public function getHasImageAttribute(): bool
+    {
+        return is_string($this->image_path) && $this->image_path !== '';
+    }
 
     public function tenant()
     {

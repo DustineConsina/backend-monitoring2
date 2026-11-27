@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\AuditLog;
+use App\Models\Complaint;
 use App\Services\CloudinaryService;
 use App\Services\TenantQrToken;
 use Illuminate\Contracts\Encryption\DecryptException;
@@ -788,6 +789,35 @@ class TenantController extends Controller
             ];
         });
 
+        $complaints = $tenant->complaints()
+            ->with('replies.sender')
+            ->latest()
+            ->get()
+            ->map(function (Complaint $complaint) {
+                return [
+                    'id' => $complaint->id,
+                    'category' => $complaint->category,
+                    'subject' => $complaint->subject,
+                    'message' => $complaint->message,
+                    'has_image' => $complaint->has_image,
+                    'status' => $complaint->status,
+                    'reply' => $complaint->reply,
+                    'created_at' => $complaint->created_at,
+                    'replies' => $complaint->replies->map(function ($reply) {
+                        return [
+                            'id' => $reply->id,
+                            'message' => $reply->message,
+                            'has_image' => $reply->has_image,
+                            'created_at' => $reply->created_at,
+                            'sender' => [
+                                'name' => $reply->sender?->name,
+                                'role' => $reply->sender?->role,
+                            ],
+                        ];
+                    }),
+                ];
+            });
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -803,6 +833,7 @@ class TenantController extends Controller
                 'profile_picture_path' => $tenant->profile_picture,
                 'email'            => $tenant->user?->email,
                 'contracts'        => $contracts,
+                'complaints'       => $complaints,
             ],
         ]);
     }

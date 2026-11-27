@@ -10,7 +10,23 @@ class ComplaintReply extends Model
         'complaint_id',
         'sender_id',
         'message',
+        'request_key',
+        'email_sent_at',
+        'image_path',
     ];
+
+    protected $hidden = ['image_path'];
+
+    protected $appends = ['has_image'];
+
+    protected $casts = [
+        'email_sent_at' => 'datetime',
+    ];
+
+    public function getHasImageAttribute(): bool
+    {
+        return is_string($this->image_path) && $this->image_path !== '';
+    }
 
     public function complaint()
     {

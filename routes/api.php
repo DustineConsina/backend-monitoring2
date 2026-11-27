@@ -50,6 +50,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/storage/{path}', [TenantController::class, 'serveFile'])->where('path', '.*');
 Route::post('/public/tenant-scan', [TenantController::class, 'publicTenantInfo'])->middleware('throttle:10,1');
 Route::post('/public/tenant-scan/complaints', [ComplaintController::class, 'storeFromQr'])->middleware('throttle:5,1');
+Route::post('/public/tenant-scan/complaints/image', [ComplaintController::class, 'publicImage'])->middleware('throttle:20,1');
 
 // DEBUG: Direct database check (remove after debugging)
 Route::get('/debug/contract/{id}', function($id) {
@@ -100,9 +101,12 @@ Route::middleware(['auth:sanctum', 'tenant.access'])->group(function () {
     });
 
     Route::middleware('role:admin,staff')->group(function () {
+        Route::get('/complaints/recent', [ComplaintController::class, 'recent']);
         Route::get('/complaints', [ComplaintController::class, 'index']);
         Route::get('/complaints/unread-count', [ComplaintController::class, 'unreadCount']);
         Route::patch('/complaints/{id}/read', [ComplaintController::class, 'markRead']);
+        Route::get('/complaints/{id}/image', [ComplaintController::class, 'image']);
+        Route::get('/complaints/{id}/replies/{replyId}/image', [ComplaintController::class, 'replyImage']);
         Route::put('/complaints/{id}', [ComplaintController::class, 'update']);
     });
 

@@ -8,6 +8,7 @@ use App\Models\Tenant;
 use App\Mail\ComplaintResponseNotification;
 use App\Services\CloudinaryService;
 use App\Services\TenantQrToken;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -549,7 +550,15 @@ class ComplaintController extends Controller
             Log::error('Complaint image upload to Cloudinary failed.', [
                 'reason' => $upload['message'] ?? 'Cloudinary did not return a public ID.',
             ]);
-            throw new \RuntimeException('Unable to store the complaint image in Cloudinary.');
+            Log::channel('stderr')->error('Complaint image upload to Cloudinary failed.', [
+                'reason' => $upload['message'] ?? 'Cloudinary did not return a public ID.',
+            ]);
+
+            throw new HttpResponseException(response()->json([
+                'success' => false,
+                'message' => 'The image could not be uploaded. Please try again or submit the complaint without an image.',
+                'errors' => ['image' => ['The image upload failed.']],
+            ], 502));
         }
 
         return 'cloudinary:' . $upload['public_id'];

@@ -317,6 +317,43 @@ it('allows tenants and administrators to upload private complaint images', funct
     ])->assertForbidden();
 });
 
+it('returns a clear gateway error and does not create a complaint when Cloudinary rejects its image', function () {
+    $cloudinary = Mockery::mock(CloudinaryService::class);
+    $cloudinary->shouldReceive('uploadPrivateImageFile')
+        ->once()
+        ->andReturn([
+            'success' => false,
+            'message' => 'Cloudinary credentials are invalid.',
+        ]);
+    app()->instance(CloudinaryService::class, $cloudinary);
+
+    [, , $tenant] = createComplaintResponseFixture();
+    $tenant->forceFill([
+        'qr_password_hash' => \Illuminate\Support\Facades\Hash::make('12345678'),
+        'qr_access_code' => '12345678',
+    ])->save();
+    $qrToken = app(TenantQrToken::class)->issue($tenant);
+
+    $image = UploadedFile::fake()->createWithContent(
+        'complaint.png',
+        base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Jx8AAAAASUVORK5CYII=', true),
+    );
+
+    $this->post('/api/public/tenant-scan/complaints', [
+        'token' => $qrToken,
+        'access_code' => '12345678',
+        'category' => 'other',
+        'subject' => 'Photo of damaged stall',
+        'message' => 'The stall shutter has visible damage near the lock.',
+        'image' => $image,
+    ])
+        ->assertStatus(502)
+        ->assertJsonPath('success', false)
+        ->assertJsonPath('errors.image.0', 'The image upload failed.');
+
+    expect(Complaint::where('subject', 'Photo of damaged stall')->exists())->toBeFalse();
+});
+
 it('loads real complaints for admins and permits only the QR tenant to reply chronologically', function () {
     mockCloudinaryComplaintImages();
     [$admin, $tenantUser, $tenant, $complaint] = createComplaintResponseFixture();

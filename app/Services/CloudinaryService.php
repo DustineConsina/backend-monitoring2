@@ -165,12 +165,17 @@ class CloudinaryService
                 'public_id' => $result['public_id'],
                 'resource_type' => $result['resource_type'],
             ];
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Log::error('Cloudinary upload error', [
                 'error' => $e->getMessage(),
                 'folder' => $folder,
                 'mime_type' => $mimeType,
                 'trace' => $e->getTraceAsString()
+            ]);
+            \Log::channel('stderr')->error('Cloudinary upload failed.', [
+                'error' => $e->getMessage(),
+                'folder' => $folder,
+                'mime_type' => $mimeType,
             ]);
             
             return [

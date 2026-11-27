@@ -446,36 +446,11 @@ class ComplaintController extends Controller
                 ], 503);
             }
 
-            try {
-                $cloudinaryResponse = Http::timeout(15)->get($url);
-                $mimeType = (string) $cloudinaryResponse->header('Content-Type');
-                if (!$cloudinaryResponse->successful() || !str_starts_with($mimeType, 'image/')) {
-                    Log::error('Authenticated Cloudinary complaint image could not be fetched.', [
-                        'status' => $cloudinaryResponse->status(),
-                        'content_type' => $mimeType,
-                    ]);
+            return $this->fetchCloudinaryImage($url);
+        }
 
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Image attachment is temporarily unavailable.',
-                    ], 503);
-                }
-
-                return response($cloudinaryResponse->body(), 200, [
-                    'Content-Type' => $mimeType,
-                    'Cache-Control' => 'private, no-store',
-                    'X-Content-Type-Options' => 'nosniff',
-                ]);
-            } catch (Throwable $exception) {
-                Log::error('Authenticated Cloudinary complaint image could not be fetched.', [
-                    'exception' => get_class($exception),
-                ]);
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Image attachment is temporarily unavailable.',
-                ], 503);
-            }
+        if ($this->isCloudinaryImageUrl($imagePath)) {
+            return $this->fetchCloudinaryImage($imagePath);
         }
 
         $diskNames = array_values(array_unique([
@@ -527,6 +502,50 @@ class ComplaintController extends Controller
             'success' => false,
             'message' => 'Image attachment is missing from storage. Please contact the administrator.',
         ], 404);
+    }
+
+    private function isCloudinaryImageUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts)
+            && ($parts['scheme'] ?? null) === 'https'
+            && ($parts['host'] ?? null) === 'res.cloudinary.com'
+            && preg_match('#^/[^/]+/image/(?:upload|authenticated)/#', $parts['path'] ?? '') === 1;
+    }
+
+    private function fetchCloudinaryImage(string $url)
+    {
+        try {
+            $cloudinaryResponse = Http::timeout(15)->get($url);
+            $mimeType = (string) $cloudinaryResponse->header('Content-Type');
+            if (!$cloudinaryResponse->successful() || !str_starts_with($mimeType, 'image/')) {
+                Log::error('Cloudinary complaint image could not be fetched.', [
+                    'status' => $cloudinaryResponse->status(),
+                    'content_type' => $mimeType,
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Image attachment is temporarily unavailable.',
+                ], 503);
+            }
+
+            return response($cloudinaryResponse->body(), 200, [
+                'Content-Type' => $mimeType,
+                'Cache-Control' => 'private, no-store',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        } catch (Throwable $exception) {
+            Log::error('Cloudinary complaint image could not be fetched.', [
+                'exception' => get_class($exception),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Image attachment is temporarily unavailable.',
+            ], 503);
+        }
     }
 
     private function attachmentDiskName(): string

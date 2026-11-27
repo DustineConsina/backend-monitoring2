@@ -463,3 +463,17 @@ it('serves legacy public-disk complaint images after moving new uploads to S3', 
         ->assertOk()
         ->assertHeader('content-type', 'image/png');
 });
+
+it('serves a stored Cloudinary secure URL without rebuilding it', function () {
+    mockCloudinaryComplaintImages();
+    [$admin, , , $complaint] = createComplaintResponseFixture();
+    $secureUrl = 'https://res.cloudinary.com/test/image/upload/v123/complaint-attachments/legacy.png';
+    $complaint->forceFill(['image_path' => $secureUrl])->save();
+
+    $this->actingAs($admin, 'sanctum')
+        ->get("/api/complaints/{$complaint->id}/image")
+        ->assertOk()
+        ->assertHeader('content-type', 'image/png');
+
+    Http::assertSent(fn (\Illuminate\Http\Client\Request $request) => $request->url() === $secureUrl);
+});

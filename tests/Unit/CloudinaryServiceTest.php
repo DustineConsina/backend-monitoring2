@@ -6,6 +6,7 @@ use App\Services\CloudinaryService;
 use Cloudinary\Api\ApiResponse;
 use Cloudinary\Api\Upload\UploadApi;
 use Cloudinary\Cloudinary;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class CloudinaryServiceTest extends TestCase
@@ -49,5 +50,77 @@ class CloudinaryServiceTest extends TestCase
             'https://res.cloudinary.com/demo/raw/upload/contracts/contract-test.pdf',
             $service->generateUrl($result['public_id'], 0, 0, 'raw')
         );
+    }
+
+    public function test_authenticated_image_urls_do_not_add_a_fallback_version(): void
+    {
+        $service = (new \ReflectionClass(CloudinaryService::class))->newInstanceWithoutConstructor();
+        $cloudinaryProperty = new \ReflectionProperty(CloudinaryService::class, 'cloudinary');
+        $cloudinaryProperty->setValue(
+            $service,
+            new Cloudinary('cloudinary://123456:example@demo')
+        );
+
+        $url = $service->generateAuthenticatedImageUrl('complaint-attachments/complaint-test');
+
+        $this->assertNotNull($url);
+        $this->assertStringStartsWith('https://res.cloudinary.com/demo/image/authenticated/s--', $url);
+        $this->assertDoesNotMatchRegularExpression('#/v1/#', $url);
+        $this->assertStringContainsString('/complaint-attachments/complaint-test', $url);
+    }
+
+    public function test_generate_url_preserves_a_complete_cloudinary_secure_url(): void
+    {
+        $service = (new \ReflectionClass(CloudinaryService::class))->newInstanceWithoutConstructor();
+        $secureUrl = 'https://res.cloudinary.com/demo/image/upload/v123/example.png';
+
+        $this->assertSame($secureUrl, $service->generateUrl($secureUrl));
+    }
+
+    public function test_upload_rejects_invalid_cloudinary_metadata(): void
+    {
+        $uploadApi = \Mockery::mock(UploadApi::class);
+        $cloudinary = \Mockery::mock(Cloudinary::class);
+        $cloudinary->shouldReceive('uploadApi')->once()->andReturn($uploadApi);
+        $uploadApi->shouldReceive('upload')->once()->andReturn(new ApiResponse([
+            'secure_url' => 'https://example.test/image.png',
+            'public_id' => 'complaint-attachments/test',
+            'resource_type' => 'image',
+        ], []));
+
+        $service = (new \ReflectionClass(CloudinaryService::class))->newInstanceWithoutConstructor();
+        $cloudinaryProperty = new \ReflectionProperty(CloudinaryService::class, 'cloudinary');
+        $cloudinaryProperty->setValue($service, $cloudinary);
+
+        $result = $service->uploadFile(
+            UploadedFile::fake()->createWithContent('complaint.png', 'image content'),
+            'complaint-attachments'
+        );
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('Cloudinary returned an invalid image reference.', $result['message']);
+    }
+
+    public function test_upload_errors_do_not_return_provider_credentials(): void
+    {
+        $uploadApi = \Mockery::mock(UploadApi::class);
+        $cloudinary = \Mockery::mock(Cloudinary::class);
+        $cloudinary->shouldReceive('uploadApi')->once()->andReturn($uploadApi);
+        $uploadApi->shouldReceive('upload')->once()->andThrow(
+            new \RuntimeException('Invalid api_key <sensitive-test-key>')
+        );
+
+        $service = (new \ReflectionClass(CloudinaryService::class))->newInstanceWithoutConstructor();
+        $cloudinaryProperty = new \ReflectionProperty(CloudinaryService::class, 'cloudinary');
+        $cloudinaryProperty->setValue($service, $cloudinary);
+
+        $result = $service->uploadFile(
+            UploadedFile::fake()->createWithContent('complaint.png', 'image content'),
+            'complaint-attachments'
+        );
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('Cloudinary credentials were rejected.', $result['message']);
+        $this->assertStringNotContainsString('sensitive-test-key', $result['message']);
     }
 }

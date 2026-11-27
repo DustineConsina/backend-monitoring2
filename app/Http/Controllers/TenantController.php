@@ -46,8 +46,7 @@ class TenantController extends Controller
             return $this->cloudinary->generateUrl($profilePicture);
         } catch (\Exception $e) {
             \Log::warning('Failed to generate Cloudinary URL', [
-                'public_id' => $profilePicture,
-                'error'     => $e->getMessage(),
+                'exception' => get_class($e),
             ]);
             return null;
         }
@@ -846,7 +845,7 @@ class TenantController extends Controller
         \Log::info('Upload picture request received', [
             'tenant_id' => $id,
             'has_file' => $request->hasFile('profile_picture'),
-            'headers' => $request->headers->all()
+            'content_type' => $request->header('Content-Type'),
         ]);
 
         $tenant = Tenant::findOrFail($id);
@@ -897,16 +896,15 @@ class TenantController extends Controller
                     'url'             => $pictureUrl,
                 ]
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Log::error('Profile picture upload failed', [
                 'tenant_id' => $id,
-                'error'     => $e->getMessage(),
-                'trace'     => $e->getTraceAsString()
+                'exception' => get_class($e),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to upload picture: ' . $e->getMessage()
+                'message' => 'Failed to upload picture. Please try again.',
             ], 500);
         }
     }

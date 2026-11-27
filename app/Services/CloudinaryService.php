@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Cloudinary\Cloudinary;
 use Cloudinary\Asset\DeliveryType;
+use Cloudinary\Configuration\UrlConfig;
 use Illuminate\Http\UploadedFile;
 
 class CloudinaryService
@@ -53,8 +54,7 @@ class CloudinaryService
             ]);
         } catch (\Exception $e) {
             \Log::error('Failed to initialize CloudinaryService', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'exception' => get_class($e),
             ]);
             $this->cloudinary = null;
             $this->cloudName = '';
@@ -153,34 +153,58 @@ class CloudinaryService
                 $options
             );
 
+            $secureUrl = $result['secure_url'] ?? null;
+            $publicId = $result['public_id'] ?? null;
+            $uploadedResourceType = $result['resource_type'] ?? null;
+            $parsedSecureUrl = is_string($secureUrl) ? parse_url($secureUrl) : false;
+            if (
+                !is_array($parsedSecureUrl)
+                || ($parsedSecureUrl['scheme'] ?? null) !== 'https'
+                || ($parsedSecureUrl['host'] ?? null) !== 'res.cloudinary.com'
+                || !is_string($publicId)
+                || $publicId === ''
+                || !is_string($uploadedResourceType)
+                || $uploadedResourceType === ''
+            ) {
+                \Log::error('Cloudinary returned invalid upload metadata.', [
+                    'folder' => $folder,
+                    'mime_type' => $mimeType,
+                ]);
+
+                return [
+                    'success' => false,
+                    'message' => 'Cloudinary returned an invalid image reference.',
+                ];
+            }
+
             \Log::info('Cloudinary upload successful', [
-                'public_id' => $result['public_id'],
-                'url' => $result['secure_url'],
-                'resource_type' => $result['resource_type'],
+                'resource_type' => $uploadedResourceType,
             ]);
 
             return [
                 'success' => true,
-                'url' => $result['secure_url'],
-                'public_id' => $result['public_id'],
-                'resource_type' => $result['resource_type'],
+                'url' => $secureUrl,
+                'public_id' => $publicId,
+                'resource_type' => $uploadedResourceType,
             ];
         } catch (\Throwable $e) {
+            $reason = $this->safeProviderFailureReason($e);
             \Log::error('Cloudinary upload error', [
-                'error' => $e->getMessage(),
+                'reason' => $reason,
+                'exception' => get_class($e),
                 'folder' => $folder,
                 'mime_type' => $mimeType,
-                'trace' => $e->getTraceAsString()
             ]);
             \Log::channel('stderr')->error('Cloudinary upload failed.', [
-                'error' => $e->getMessage(),
+                'reason' => $reason,
+                'exception' => get_class($e),
                 'folder' => $folder,
                 'mime_type' => $mimeType,
             ]);
             
             return [
                 'success' => false,
-                'message' => $e->getMessage()
+                'message' => $reason,
             ];
         }
     }
@@ -207,8 +231,11 @@ class CloudinaryService
                 'type' => $deliveryType,
             ]);
             return true;
-        } catch (\Exception $e) {
-            \Log::error('Cloudinary delete error: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            \Log::error('Cloudinary delete failed.', [
+                'exception' => get_class($e),
+                'resource_type' => $resourceType,
+            ]);
             return false;
         }
     }
@@ -229,6 +256,15 @@ class CloudinaryService
     ): ?string
     {
         try {
+            $storedUrl = parse_url($public_id);
+            if (
+                is_array($storedUrl)
+                && ($storedUrl['scheme'] ?? null) === 'https'
+                && ($storedUrl['host'] ?? null) === 'res.cloudinary.com'
+            ) {
+                return $public_id;
+            }
+
             if (!$this->cloudName) {
                 \Log::warning('Cloud name not configured for Cloudinary');
                 return null;
@@ -242,12 +278,11 @@ class CloudinaryService
             $url = "https://res.cloudinary.com/{$this->cloudName}/{$resourceType}/upload/{$transformations}/{$public_id}";
             
             return $url;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Log::warning('Failed to generate Cloudinary URL', [
-                'public_id' => $public_id,
-                'error' => $e->getMessage()
+                'exception' => get_class($e),
+                'resource_type' => $resourceType,
             ]);
-            // Return null if unable to generate URL
             return null;
         }
     }
@@ -260,18 +295,43 @@ class CloudinaryService
                 return null;
             }
 
-            return (string) $this->cloudinary
-                ->image($publicId)
+            $image = $this->cloudinary->image($publicId);
+            $image->setUrlConfig(UrlConfig::FORCE_VERSION, false);
+
+            return (string) $image
                 ->deliveryType(DeliveryType::AUTHENTICATED)
                 ->signUrl()
                 ->toUrl();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Log::error('Failed to generate authenticated Cloudinary image URL.', [
-                'public_id' => $publicId,
-                'error' => $e->getMessage(),
+                'exception' => get_class($e),
             ]);
 
             return null;
         }
+    }
+
+    private function safeProviderFailureReason(\Throwable $exception): string
+    {
+        $message = strtolower($exception->getMessage());
+        if (
+            str_contains($message, 'api_key')
+            || str_contains($message, 'api key')
+            || str_contains($message, 'api_secret')
+            || str_contains($message, 'signature')
+            || str_contains($message, 'unauthorized')
+        ) {
+            return 'Cloudinary credentials were rejected.';
+        }
+
+        if (
+            str_contains($message, 'invalid image')
+            || str_contains($message, 'unsupported format')
+            || str_contains($message, 'file size')
+        ) {
+            return 'Cloudinary rejected the image format or size.';
+        }
+
+        return 'Cloudinary could not process the uploaded file.';
     }
 }

@@ -16,14 +16,14 @@ class CloudinaryService
     {
         try {
             // Parse CLOUDINARY_URL if set
-            $cloudinaryUrl = config('services.cloudinary.url');
+            $cloudinaryUrl = trim((string) config('services.cloudinary.url', ''));
             
             if ($cloudinaryUrl) {
                 // Parse cloudinary://key:secret@cloudname format
                 $this->cloudinary = new Cloudinary($cloudinaryUrl);
                 // Extract cloud name from URL
-                preg_match('/cloudinary:\/\/[^:]+:[^@]+@([^\/]+)/', $cloudinaryUrl, $matches);
-                $this->cloudName = $matches[1] ?? config('services.cloudinary.cloud_name', '');
+                $this->cloudName = parse_url($cloudinaryUrl, PHP_URL_HOST)
+                    ?: config('services.cloudinary.cloud_name', '');
             } else {
                 // Fallback to individual env variables
                 $this->cloudName = config('services.cloudinary.cloud_name', '');
@@ -314,14 +314,20 @@ class CloudinaryService
     private function safeProviderFailureReason(\Throwable $exception): string
     {
         $message = strtolower($exception->getMessage());
+        if (str_contains($message, 'api_key') || str_contains($message, 'api key')) {
+            return 'Cloudinary rejected the API key. Verify it in the backend production environment.';
+        }
+
         if (
-            str_contains($message, 'api_key')
-            || str_contains($message, 'api key')
-            || str_contains($message, 'api_secret')
+            str_contains($message, 'api_secret')
             || str_contains($message, 'signature')
             || str_contains($message, 'unauthorized')
         ) {
-            return 'Cloudinary credentials were rejected.';
+            return 'Cloudinary rejected the API secret or request signature. Verify the key and secret belong to the same account.';
+        }
+
+        if (str_contains($message, 'cloud name') || str_contains($message, 'cloud_name')) {
+            return 'Cloudinary rejected the cloud name. Verify it matches the account used for the API credentials.';
         }
 
         if (

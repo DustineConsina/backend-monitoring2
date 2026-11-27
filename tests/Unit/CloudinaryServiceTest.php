@@ -101,7 +101,7 @@ class CloudinaryServiceTest extends TestCase
         $this->assertSame('Cloudinary returned an invalid image reference.', $result['message']);
     }
 
-    public function test_upload_errors_do_not_return_provider_credentials(): void
+    public function test_upload_error_identifies_rejected_api_key_without_exposing_it(): void
     {
         $uploadApi = \Mockery::mock(UploadApi::class);
         $cloudinary = \Mockery::mock(Cloudinary::class);
@@ -120,7 +120,36 @@ class CloudinaryServiceTest extends TestCase
         );
 
         $this->assertFalse($result['success']);
-        $this->assertSame('Cloudinary credentials were rejected.', $result['message']);
+        $this->assertSame(
+            'Cloudinary rejected the API key. Verify it in the backend production environment.',
+            $result['message']
+        );
         $this->assertStringNotContainsString('sensitive-test-key', $result['message']);
+    }
+
+    public function test_upload_error_identifies_signature_rejection_without_exposing_the_signature(): void
+    {
+        $uploadApi = \Mockery::mock(UploadApi::class);
+        $cloudinary = \Mockery::mock(Cloudinary::class);
+        $cloudinary->shouldReceive('uploadApi')->once()->andReturn($uploadApi);
+        $uploadApi->shouldReceive('upload')->once()->andThrow(
+            new \RuntimeException('Invalid Signature <sensitive-test-signature>')
+        );
+
+        $service = (new \ReflectionClass(CloudinaryService::class))->newInstanceWithoutConstructor();
+        $cloudinaryProperty = new \ReflectionProperty(CloudinaryService::class, 'cloudinary');
+        $cloudinaryProperty->setValue($service, $cloudinary);
+
+        $result = $service->uploadFile(
+            UploadedFile::fake()->createWithContent('complaint.png', 'image content'),
+            'complaint-attachments'
+        );
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(
+            'Cloudinary rejected the API secret or request signature. Verify the key and secret belong to the same account.',
+            $result['message']
+        );
+        $this->assertStringNotContainsString('sensitive-test-signature', $result['message']);
     }
 }
